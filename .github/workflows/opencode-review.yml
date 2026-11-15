@@ -1,0 +1,128 @@
+name: AI review
+
+# Reviews a pull request once when it opens ready for review, and again each time a
+# draft is marked ready. Comment "/oc review this again" for another pass on demand.
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  review:
+    # Skip drafts, forks (their tokens are read-only), Dependabot, and agent pull requests,
+    # which open as drafts and get reviewed when marked ready.
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      !(github.event.action == 'opened' && startsWith(github.head_ref, 'opencode/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      # Read-only. Subagents bring their own shell rules, execute (Code Mode) scripts can
+      # reach the network, and the denied git flags and shell redirects read outside the
+      # checkout or write files.
+      OPENCODE_CONFIG_CONTENT: >-
+        {"permissions": [
+          {"action": "edit", "resource": "*", "effect": "deny"},
+          {"action": "webfetch", "resource": "*", "effect": "deny"},
+          {"action": "websearch", "resource": "*", "effect": "deny"},
+          {"action": "subagent", "resource": "*", "effect": "deny"},
+          {"action": "execute", "resource": "*", "effect": "deny"},
+          {"action": "question", "resource": "*", "effect": "deny"},
+          {"action": "external_directory", "resource": "*", "effect": "deny"},
+          {"action": "shell", "resource": "*", "effect": "deny"},
+          {"action": "shell", "resource": "git diff *", "effect": "allow"},
+          {"action": "shell", "resource": "git log *", "effect": "allow"},
+          {"action": "shell", "resource": "git show *", "effect": "allow"},
+          {"action": "shell", "resource": "git * --no-index*", "effect": "deny"},
+          {"action": "shell", "resource": "git * --output*", "effect": "deny"},
+          {"action": "shell", "resource": "*>*", "effect": "deny"}]}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - id: model
+        uses: ./.github/actions/pick-free-model
+
+      # Read from the base branch so a pull request cannot rewrite its own review instructions.
+      - name: Load the review prompt
+        id: prompt
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git show "$BASE_SHA:.github/opencode/review-prompt.md" > "$RUNNER_TEMP/review-prompt.md"
+          {
+            echo 'text<<PROMPT_EOF'
+            cat "$RUNNER_TEMP/review-prompt.md"
+            echo 'PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Review with the best free model
+        id: primary
+        if: steps.model.outputs.primary != ''
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: ./.github/actions/run-opencode
+        with:
+          model: ${{ steps.model.outputs.primary }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: ${{ steps.prompt.outputs.text }}
+
+      - name: Retry with the next free model
+        id: fallback
+        if: steps.primary.outcome == 'failure' && steps.model.outputs.fallback != ''
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: ./.github/actions/run-opencode
+        with:
+          model: ${{ steps.model.outputs.fallback }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: ${{ steps.prompt.outputs.text }}
+
+      - name: Review with Kiro CLI
+        if: steps.primary.outcome != 'success' && steps.fallback.outcome != 'success'
+        env:
+          KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
+          KIRO_MODEL: gpt-5.6-luna
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -z "$KIRO_API_KEY" ]; then
+            echo "::warning title=No review::No free OpenCode model worked and the KIRO_API_KEY secret is not set."
+            exit 0
+          fi
+          curl -fsSL https://cli.kiro.dev/install | bash
+          export PATH="$HOME/.local/bin:$PATH"
+
+          git diff "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/pr.diff"
+          {
+            cat "$RUNNER_TEMP/review-prompt.md"
+            printf '\nThe pull request and its diff (truncated to 200 KB) are below.\n\n'
+            printf '<pull_request>\nTitle: %s\n\n%s\n</pull_request>\n\n<diff>\n' "$PR_TITLE" "$PR_BODY"
+            head -c 200000 "$RUNNER_TEMP/pr.diff"
+            printf '\n</diff>\n'
+          } > "$RUNNER_TEMP/prompt.md"
+
+          kiro-cli chat --v3 --no-interactive --model "$KIRO_MODEL" --trust-tools=read_file,grep_search \
+            < "$RUNNER_TEMP/prompt.md" > "$RUNNER_TEMP/review.md"
+
+          # Kiro narrates its progress before the review itself; post from "## Summary" on.
+          {
+            python3 -c 'import sys; t = sys.stdin.read(); i = t.find("## Summary"); print(t[max(i, 0):])' \
+              < "$RUNNER_TEMP/review.md"
+            printf '\n---\n<sub>Reviewed by Kiro CLI (%s) because no free OpenCode model was available.</sub>\n' "$KIRO_MODEL"
+          } | gh pr comment "$PR_NUMBER" --body-file -

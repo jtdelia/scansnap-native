@@ -1,0 +1,52 @@
+name: Run OpenCode
+description: >-
+  Installs a pinned OpenCode release, verified against its checksum, and runs it on the
+  triggering event with the given token. Set OPENCODE_CONFIG_CONTENT on the job to limit
+  which tools the agent may use; configuration files in the repository are ignored.
+
+inputs:
+  model:
+    description: Model to use, as provider/model.
+    required: true
+  token:
+    description: >-
+      GitHub token used to read the issue or pull request, react, comment, and open pull
+      requests. Pushes use the git credentials already configured in the checkout.
+    required: true
+  prompt:
+    description: Instructions to use instead of the triggering comment.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install OpenCode
+      shell: bash
+      env:
+        # Change both together. The digest is the SHA-256 of the npm package tarball:
+        # curl -fsSL https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-$VERSION.tgz | sha256sum
+        VERSION: 2.0.32
+        SHA256: 64a1f4b381c2d2efc18c8d76b2ce399141778b421b54c98b94be8e80803606dc
+      run: |
+        dir="$RUNNER_TEMP/opencode-$VERSION"
+        if [ ! -x "$dir/opencode" ]; then
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir.tgz" \
+            "https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-$VERSION.tgz"
+          echo "$SHA256  $dir.tgz" | sha256sum -c -
+          tar -xzf "$dir.tgz" -C "$dir" --strip-components=2 package/bin/opencode
+        fi
+        echo "$dir" >> "$GITHUB_PATH"
+
+    - name: Run OpenCode
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        PROMPT: ${{ inputs.prompt }}
+        GH_TOKEN: ${{ inputs.token }}
+        # Ignore opencode.json and .opencode/ in the checkout, so a pull request cannot grant
+        # the agent more permissions or load plugins.
+        OPENCODE_DISABLE_PROJECT_CONFIG: "true"
+        OPENCODE_DISABLE_AUTOUPDATE: "true"
+      run: python3 "$GITHUB_ACTION_PATH/run_opencode.py"

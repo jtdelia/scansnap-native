@@ -1,0 +1,37 @@
+name: Setup check
+
+# Run by scripts/setup-repo.sh to confirm the agent GitHub app is set up and installed on
+# this repository. Run it by hand from the Actions tab at any time.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  agent-app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Get a token for the agent app
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Fail if the app has more permissions than it needs
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          extra=$(gh api "apps/$SLUG" \
+            --jq '.permissions | del(.metadata, .contents, .issues, .pull_requests) | keys | join(", ")')
+          if [ -n "$extra" ]; then
+            echo "::error title=Agent app has extra permissions::Set these to No access in the app's settings: $extra"
+            exit 1
+          fi
+          echo "The $SLUG app is installed and limited to contents, issues, and pull requests."
