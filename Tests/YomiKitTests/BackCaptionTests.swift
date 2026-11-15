@@ -138,6 +138,20 @@ struct BackCaptionTests {
         #expect(caption.contains("1962"))
     }
 
+    @Test func handwrittenNoteIsReadOnCPU() async throws {
+        let reading = try await offTheTaskPool {
+            let back = try Self.scan(Side(text: Self.handwrittenNote), as: .back).cgImage()
+            return BackCaptionReader.read(back, useCPU: true)
+        }
+        guard case let .caption(caption) = reading else {
+            Issue.record("Expected a handwritten caption, got \(reading)")
+            return
+        }
+        #expect(caption.localizedCaseInsensitiveContains("Grandma and Joe"))
+        #expect(caption.localizedCaseInsensitiveContains("Lake Tahoe"))
+        #expect(caption.contains("1962"))
+    }
+
     /// Lines turned by `angle` (anticlockwise) around the print's centre.
     private static func turned(_ lines: [Side.Text], by angle: CGFloat) -> [Side.Text] {
         let cx = CGFloat(printWidth) / 2, cy = CGFloat(printHeight) / 2
@@ -265,6 +279,8 @@ struct BackCaptionTests {
             return
         }
         #expect(error.contains("com.apple.Vision"))
+        #expect(error.contains("code="))
+        #expect(error.contains("userInfo="))
     }
 
     // MARK: Recognized lines

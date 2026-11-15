@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreML
 import Foundation
 import Vision
 
@@ -15,14 +16,15 @@ enum BackCaptionReader {
     }
 
     /// Reads a back that the blank and show-through checks found ink on.
-    static func read(_ back: CGImage) -> Reading {
+    static func read(_ back: CGImage, useCPU: Bool = false) -> Reading {
         do {
-            let recognized = try recognizedLines(back)
+            let recognized = try recognizedLines(back, useCPU: useCPU)
             guard !recognized.isEmpty else { return .unreadable }
             let lines = handwrittenLines(recognized)
             return lines.isEmpty ? .blank : .caption(lines.joined(separator: "\n"))
         } catch {
-            return .recognitionFailed(String(describing: error))
+            let error = error as NSError
+            return .recognitionFailed("domain=\(error.domain) code=\(error.code) userInfo=\(error.userInfo)")
         }
     }
 
@@ -129,14 +131,29 @@ enum BackCaptionReader {
         line.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
     }
 
-    private static func recognizedLines(_ image: CGImage) throws -> [String] {
+    private static func recognizedLines(_ image: CGImage, useCPU: Bool) throws -> [String] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.automaticallyDetectsLanguage = true
+        if useCPU { try setCPUDevice(on: request) }
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        try handler.perform([request])
+        do {
+            try handler.perform([request])
+        } catch {
+            guard !useCPU else { throw error }
+            try setCPUDevice(on: request)
+            try handler.perform([request])
+        }
         return (request.results ?? [])
             .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
             .compactMap { $0.topCandidates(1).first?.string }
+    }
+
+    private static func setCPUDevice(on request: VNRequest) throws {
+        guard let cpu = try request.supportedComputeStageDevices[.main]?.first(where: {
+            if case .cpu = $0 { return true }
+            return false
+        }) else { throw NSError(domain: VNErrorDomain, code: VNErrorCode.unsupportedComputeDevice.rawValue) }
+        request.setComputeDevice(cpu, for: .main)
     }
 }
