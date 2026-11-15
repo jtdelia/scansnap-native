@@ -215,7 +215,7 @@ struct BackCaptionTests {
         context.fill(CGRect(x: 0, y: 0, width: 120, height: 90))
         let page = ProcessedPage(image: context.makeImage()!, resolution: 300, isBlank: false, source: .front,
                                  isColor: true, caption: caption)
-        _ = try await offTheTaskPool { try DocumentWriter.save([page], profile: profile) }
+        _ = try await offTheTaskPool { [profile] in try DocumentWriter.save([page], profile: profile) }
         return try FileManager.default.contentsOfDirectory(atPath: folder.path).reduce(into: [:]) { result, name in
             let source = try #require(CGImageSourceCreateWithURL(folder.appendingPathComponent(name) as CFURL, nil))
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
