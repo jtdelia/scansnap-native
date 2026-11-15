@@ -138,9 +138,28 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
+    /// Where a batch is saved. Saving to Photos happens only in the app.
+    public enum SaveDestination: String, Codable, CaseIterable, Sendable {
+        case folder, photos, folderAndPhotos
+
+        public var title: String {
+            switch self {
+            case .folder: "Folder"
+            case .photos: "Photos"
+            case .folderAndPhotos: "Folder and Photos"
+            }
+        }
+
+        public var savesToFolder: Bool { self != .photos }
+        public var savesToPhotos: Bool { self != .folder }
+    }
+
     public var id: UUID
     public var name: String
     public var folderPath: String
+    public var saveTo: SaveDestination
+    /// Photos album the batch goes into, created the first time it is needed. Empty adds photos to the library only.
+    public var photosAlbum: String
     public var afterScan: AfterScan
     public var quality: Quality
     public var colorMode: ColorMode
@@ -169,6 +188,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         id: UUID = UUID(),
         name: String,
         folderPath: String = ScanProfile.defaultFolder.path,
+        saveTo: SaveDestination = .folder,
+        photosAlbum: String = "",
         afterScan: AfterScan = .nothing,
         quality: Quality = .automatic,
         colorMode: ColorMode = .auto,
@@ -191,6 +212,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.id = id
         self.name = name
         self.folderPath = folderPath
+        self.saveTo = saveTo
+        self.photosAlbum = photosAlbum
         self.afterScan = afterScan
         self.quality = quality
         self.colorMode = colorMode
@@ -218,6 +241,9 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? defaults.id
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? defaults.name
         folderPath = try container.decodeIfPresent(String.self, forKey: .folderPath) ?? defaults.folderPath
+        saveTo = try container.decodeIfPresent(SaveDestination.self, forKey: .saveTo)
+            ?? (Self.builtInPhotoIDs.contains(id) ? .photos : .folder)
+        photosAlbum = try container.decodeIfPresent(String.self, forKey: .photosAlbum) ?? defaults.photosAlbum
         afterScan = try container.decodeIfPresent(AfterScan.self, forKey: .afterScan) ?? defaults.afterScan
         quality = try container.decodeIfPresent(Quality.self, forKey: .quality) ?? defaults.quality
         colorMode = try container.decodeIfPresent(ColorMode.self, forKey: .colorMode) ?? defaults.colorMode
@@ -300,19 +326,20 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
 
     /// Auto-rotate stays off because text-based rotation misfires on photos.
     private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
-        ScanProfile(id: UUID(uuidString: id)!, name: name, quality: quality, colorMode: .color, sides: .duplex,
-                    skipBlankPages: true, reduceBleedThrough: false, autoRotate: false, fileFormat: .heic,
-                    searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage, correctColor: true,
-                    autoEnhance: true)
+        ScanProfile(id: UUID(uuidString: id)!, name: name, saveTo: .photos, quality: quality, colorMode: .color,
+                    sides: .duplex, skipBlankPages: true, reduceBleedThrough: false, autoRotate: false,
+                    fileFormat: .heic, searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage,
+                    correctColor: true, autoEnhance: true)
     }
 
-    /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving into `folder` at `dpi`,
+    /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving only into `folder` at `dpi`,
     /// or `nil` when no quality saves at that resolution.
     public static func commandLinePhoto(dpi: Int, folder: URL) -> ScanProfile? {
         guard var profile = builtInPhotoProfiles.first(where: { $0.name == "Photos – Keepers" }),
               let quality = Quality.allCases.first(where: { $0 != .automatic && $0.outputDPI(pageLengthInches: 0) == dpi })
         else { return nil }
         profile.folderPath = folder.path
+        profile.saveTo = .folder
         profile.quality = quality
         return profile
     }

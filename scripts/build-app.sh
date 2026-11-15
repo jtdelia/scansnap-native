@@ -43,6 +43,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSPhotoLibraryUsageDescription</key><string>Yomi saves scanned photos to the album you choose in its scan profiles.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key><string>Yomi saves scanned photos to Photos.</string>
     <key>NSHumanReadableCopyright</key><string>Native driver for ScanSnap S1300 / S1300i.</string>
 </dict>
 </plist>
