@@ -1,6 +1,6 @@
 import AppKit
 import Observation
-import ScanSnapKit
+import YomiKit
 import ServiceManagement
 
 @MainActor
@@ -30,7 +30,7 @@ final class AppModel {
     private var loaded = false
 
     static let supportFolder = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/ScanSnapNative", isDirectory: true)
+        .appendingPathComponent("Library/Application Support/Yomi", isDirectory: true)
     private static let settingsURL = supportFolder.appendingPathComponent("Settings.json")
 
     var buttonProfile: ScanProfile? {

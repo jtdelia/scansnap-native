@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
-import ScanSnapKit
+import YomiKit
 
 setvbuf(stdout, nil, _IOLBF, 0)
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -50,7 +50,7 @@ func loadScanned(_ path: String, side: ScannedPage.Side) -> ScannedPage? {
 if command == "showthrough" {
     let paths = arguments.filter { $0.hasSuffix(".png") }
     guard paths.count == 2, let front = loadScanned(paths[0], side: .front), let back = loadScanned(paths[1], side: .back) else {
-        print("usage: sscan showthrough front.png back.png"); exit(1)
+        print("usage: yomi showthrough front.png back.png"); exit(1)
     }
     let start = Date()
     let result = ShowThroughDetector.isShowThroughOnly(back: ColumnFlattener.flatten(back), front: ColumnFlattener.flatten(front))
@@ -59,11 +59,11 @@ if command == "showthrough" {
 }
 
 if command == "sheet" {
-    // sscan sheet front.png back.png out-prefix [--no-bleed]
+    // yomi sheet front.png back.png out-prefix [--no-bleed]
     let paths = arguments.filter { $0.hasSuffix(".png") }
     let prefix = arguments.last { !$0.hasSuffix(".png") && !$0.hasPrefix("-") && $0 != "sheet" } ?? "/tmp/sheet"
     guard paths.count == 2, let front = loadScanned(paths[0], side: .front), let back = loadScanned(paths[1], side: .back) else {
-        print("usage: sscan sheet front.png back.png out-prefix"); exit(1)
+        print("usage: yomi sheet front.png back.png out-prefix"); exit(1)
     }
     var profile = ScanProfile(name: "Test")
     profile.reduceBleedThrough = !arguments.contains("--no-bleed")
@@ -88,7 +88,7 @@ if command == "sheet" {
 
 if command == "process" {
     let inputs = arguments.filter { $0.hasSuffix(".png") }
-    let output = URL(fileURLWithPath: arguments.first { $0.hasSuffix(".pdf") } ?? "/tmp/sscan-processed.pdf")
+    let output = URL(fileURLWithPath: arguments.first { $0.hasSuffix(".pdf") } ?? "/tmp/yomi-processed.pdf")
     do {
         var pages: [ProcessedPage] = []
         for path in inputs {
@@ -168,7 +168,7 @@ do {
 
     case "scan":
         let dpi = arguments.compactMap(Int.init).first ?? 300
-        let folder = URL(fileURLWithPath: arguments.first { $0.hasPrefix("/") } ?? "/tmp/sscan")
+        let folder = URL(fileURLWithPath: arguments.first { $0.hasPrefix("/") } ?? "/tmp/yomi")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         if let firmware = Firmware.locate(for: scanner.model),
            try scanner.hardwareInfo().firmwareRevision != firmware.version {
@@ -214,7 +214,7 @@ do {
         print(String(format: "Scanned %d sheet(s), %d page(s) in %.1f s → %@", sheets, processed.count, Date().timeIntervalSince(start), pdf.path))
 
     case "feed":
-        // Raw experiment: sscan feed <steps…> where steps are d400, d401, cancel, wait, status, sensors
+        // Raw experiment: yomi feed <steps…> where steps are d400, d401, cancel, wait, status, sensors
         for step in arguments.dropFirst() {
             switch step {
             case "d400", "d401":
@@ -283,7 +283,7 @@ do {
         print("no wake method worked")
 
     default:
-        print("usage: sscan [info|firmware [file.nal] [--force]|watch|scan [dpi] [/output/folder]] [-v]")
+        print("usage: yomi [info|firmware [file.nal] [--force]|watch|scan [dpi] [/output/folder]] [-v]")
     }
 } catch {
     print("error: \(error)")

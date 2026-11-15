@@ -1,18 +1,18 @@
 #!/bin/zsh
-# Builds ScanSnap.app and installs it into ~/Applications.
+# Builds Yomi.app and installs it into ~/Applications.
 set -euo pipefail
 
 ROOT=${0:A:h:h}
 BUILD="$ROOT/.build/app"
-APP="$BUILD/ScanSnap.app"
+APP="$BUILD/Yomi.app"
 INSTALL_DIR="$HOME/Applications"
 
 cd "$ROOT"
-swift build -c release --product ScanSnapNative
+swift build -c release --product YomiApp
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp .build/release/ScanSnapNative "$APP/Contents/MacOS/ScanSnap"
+cp .build/release/YomiApp "$APP/Contents/MacOS/Yomi"
 
 if [[ ! -f "$BUILD/AppIcon.icns" ]]; then
   ICONSET="$BUILD/AppIcon.iconset"
@@ -31,10 +31,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>ScanSnap</string>
-    <key>CFBundleDisplayName</key><string>ScanSnap</string>
-    <key>CFBundleIdentifier</key><string>com.taii.ScanSnapNative</string>
-    <key>CFBundleExecutable</key><string>ScanSnap</string>
+    <key>CFBundleName</key><string>Yomi</string>
+    <key>CFBundleDisplayName</key><string>Yomi</string>
+    <key>CFBundleIdentifier</key><string>io.github.jtdelia.Yomi</string>
+    <key>CFBundleExecutable</key><string>Yomi</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
@@ -51,12 +51,12 @@ PLIST
 codesign --force --deep --sign - "$APP"
 
 mkdir -p "$INSTALL_DIR"
-LOG="$HOME/Library/Logs/ScanSnap.log"
-while pgrep -x ScanSnap >/dev/null && [[ -f "$LOG" ]] && grep "connection:" "$LOG" | tail -1 | grep -q "Scanning"; do
+LOG="$HOME/Library/Logs/Yomi.log"
+while pgrep -x Yomi >/dev/null && [[ -f "$LOG" ]] && grep "connection:" "$LOG" | tail -1 | grep -q "Scanning"; do
   echo "Waiting for the current scan to finish before replacing the app…"
   sleep 3
 done
-pkill -x ScanSnap 2>/dev/null || true
-rm -rf "$INSTALL_DIR/ScanSnap.app"
+pkill -x Yomi 2>/dev/null || true
+rm -rf "$INSTALL_DIR/Yomi.app"
 cp -R "$APP" "$INSTALL_DIR/"
-echo "Installed $INSTALL_DIR/ScanSnap.app"
+echo "Installed $INSTALL_DIR/Yomi.app"

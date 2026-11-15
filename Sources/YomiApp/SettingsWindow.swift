@@ -1,5 +1,5 @@
 import AppKit
-import ScanSnapKit
+import YomiKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,13 +13,13 @@ final class SettingsWindowController {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
-            window.title = "ScanSnap"
+            window.title = "Yomi"
             window.isReleasedWhenClosed = false
             window.toolbarStyle = .unified
             window.contentViewController = NSHostingController(rootView: SettingsView(model: model))
             window.setContentSize(NSSize(width: 860, height: 620))
             window.center()
-            window.setFrameAutosaveName("ScanSnapSettings")
+            window.setFrameAutosaveName("YomiSettings")
             self.window = window
         }
         NSApp.activate()
@@ -167,7 +167,7 @@ struct ScannerSettingsView: View {
             }
 
             Section("General") {
-                Toggle("Open ScanSnap at login", isOn: Binding(
+                Toggle("Open Yomi at login", isOn: Binding(
                     get: { model.launchAtLogin },
                     set: { model.setLaunchAtLogin($0) }))
                 LabeledContent("Firmware") {

@@ -179,7 +179,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Documents/ScanSnap", isDirectory: true)
+        .appendingPathComponent("Documents/Yomi", isDirectory: true)
 
     public var folderURL: URL { URL(fileURLWithPath: folderPath, isDirectory: true) }
 
@@ -203,7 +203,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public static let defaults: [ScanProfile] = [
-        ScanProfile(name: "Scan to ScanSnap Folder"),
+        ScanProfile(name: "Scan to Yomi Folder"),
         ScanProfile(name: "Receipts", quality: .automatic, colorMode: .auto, sides: .simplex),
         ScanProfile(name: "Photos", quality: .excellent, colorMode: .color, sides: .simplex,
                     skipBlankPages: false, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg, searchablePDF: false,

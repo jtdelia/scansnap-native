@@ -49,10 +49,10 @@ public struct ScanOutcome: Sendable {
     public var warning: String? = nil
 }
 
-/// Appends timestamped lines to ~/Library/Logs/ScanSnap.log.
+/// Appends timestamped lines to ~/Library/Logs/Yomi.log.
 public enum ScanLog {
     private static let url = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/ScanSnap.log")
+        .appendingPathComponent("Library/Logs/Yomi.log")
     private static let lock = NSLock()
     private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -80,7 +80,7 @@ public final class ScannerService: @unchecked Sendable {
     public var onButtonPress: (@Sendable () -> Void)?
     public var onProgress: (@Sendable (ScanProgress) -> Void)?
 
-    private let queue = DispatchQueue(label: "ScanSnap.scanner", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "Yomi.scanner", qos: .userInteractive)
     private var timer: DispatchSourceTimer?
     private var device: ScannerDevice?
     private var lastSensors: SensorState?
@@ -225,10 +225,10 @@ public final class ScannerService: @unchecked Sendable {
         }
     }
 
-    /// Keeps unprocessed sides for tuning (enable with `defaults write com.taii.ScanSnapNative SaveRawScans -bool YES`).
+    /// Keeps unprocessed sides for tuning (enable with `defaults write io.github.jtdelia.Yomi SaveRawScans -bool YES`).
     private func saveRaw(_ front: ScannedPage, _ back: ScannedPage, sheet: Int) {
         let folder = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Caches/ScanSnapNative/Raw", isDirectory: true)
+            .appendingPathComponent("Library/Caches/Yomi/Raw", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
@@ -270,7 +270,7 @@ public final class ScannerService: @unchecked Sendable {
         // Verified on hardware: the S1300 keeps feeding into a small internal buffer and stops the
         // paper mid-sheet when the host is slow to read. Sheets are therefore processed on a
         // separate queue so the USB reader never stalls.
-        let workers = DispatchQueue(label: "ScanSnap.processing", qos: .utility)
+        let workers = DispatchQueue(label: "Yomi.processing", qos: .utility)
         let group = DispatchGroup()
         let saveRaw = UserDefaults.standard.bool(forKey: "SaveRawScans")
 

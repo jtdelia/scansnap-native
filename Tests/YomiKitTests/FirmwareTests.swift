@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import ScanSnapKit
+@testable import YomiKit
 
 struct FirmwareTests {
     private func writeFile(named name: String, contents: Data) throws -> URL {
