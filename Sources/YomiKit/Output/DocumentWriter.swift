@@ -31,6 +31,12 @@ public enum DocumentWriter {
                 urls.append(url)
             }
             return urls
+        case .multiPageTIFF:
+            let url = uniqueURL(in: folder, base: names[0], ext: profile.fileFormat.fileExtension)
+            try TIFFWriter.write(pages, to: url) { index in
+                progress?("Saving page \(index + 1) of \(pages.count)…")
+            }
+            return [url]
         }
     }
 
@@ -39,10 +45,10 @@ public enum DocumentWriter {
         profile.namePattern.usesRunningNumber ? firstPages(pages: pages, profile: profile).count : 0
     }
 
-    /// The name of the first file a two-page batch would get, for the live example in Settings.
-    public static func exampleFileName(_ profile: ScanProfile, date: Date = Date()) -> String {
+    /// Name of the first file a two-page batch scanned at `date` would get, before clash suffixes.
+    public static func exampleFileName(for profile: ScanProfile, date: Date = Date()) -> String {
         let name = baseNames(profile, firstPages: firstPages(pages: 2, profile: profile), date: date)[0]
-        return "\(name).\(profile.fileFormat == .pdf ? "pdf" : "jpg")"
+        return "\(name).\(profile.fileFormat.fileExtension)"
     }
 
     /// The batch's page number of the first page in each file the batch writes.

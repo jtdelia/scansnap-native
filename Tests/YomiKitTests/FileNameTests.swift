@@ -151,9 +151,9 @@ struct FileNameTests {
 
     @Test func exampleFileName() throws {
         let profile = ScanProfile(name: "Bank", fileFormat: .jpeg, namePattern: [.profileName, .text(" "), .date])
-        #expect(DocumentWriter.exampleFileName(profile, date: Self.date) == "Bank 2026-11-14_001.jpg")
+        #expect(DocumentWriter.exampleFileName(for: profile, date: Self.date) == "Bank 2026-11-14_001.jpg")
         let upgraded = try Self.v1Profile(named: "Scan to Yomi Folder", Self.nameAndNumber)
-        #expect(DocumentWriter.exampleFileName(upgraded, date: Self.date) == "Invoice 0041.pdf")
+        #expect(DocumentWriter.exampleFileName(for: upgraded, date: Self.date) == "Invoice 0041.pdf")
     }
 
     @Test func savedPatternsRoundTrip() throws {

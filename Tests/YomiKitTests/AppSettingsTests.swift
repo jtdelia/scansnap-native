@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import YomiKit
@@ -25,6 +26,7 @@ struct AppSettingsTests {
         #expect(settings.profiles == Self.v1Profiles)
         #expect(settings.buttonProfileID == UUID(uuidString: "0A9CA2A9-EEB9-4098-A191-1A0CA292BF17"))
         #expect(settings.addedPhotoProfiles == false)
+        #expect(settings.appearance == .system)
     }
 
     @Test func reencodedSettingsRoundTrip() throws {
@@ -69,6 +71,19 @@ struct AppSettingsTests {
         let id = "9EBC7318-4319-4F8D-AF94-FB8D73341AB4"
         #expect(try decodePhotoSetting(#"{"id": "\#(id)"}"#) == false)
         #expect(try decodePhotoSetting(#"{"id": "\#(id)", "photoSetting": true}"#) == true)
+    }
+
+    @Test(arguments: [(AppSettings.Appearance.system, "system"), (.light, "light"), (.dark, "dark")])
+    func appearanceIsSavedAndLoaded(appearance: AppSettings.Appearance, saved: String) throws {
+        let json = try AppSettings(appearance: appearance).json()
+        #expect(String(decoding: json, as: UTF8.self).contains(#""appearance" : "\#(saved)""#))
+        #expect(try AppSettings(json: Data(#"{"appearance": "\#(saved)"}"#.utf8)).appearance == appearance)
+    }
+
+    @Test func appearanceMapsToAppKitAppearance() {
+        #expect(AppSettings.Appearance.system.appKitName == nil)
+        #expect(AppSettings.Appearance.light.appKitName == .aqua)
+        #expect(AppSettings.Appearance.dark.appKitName == .darkAqua)
     }
 
     @Test func emptySettingsDecode() throws {

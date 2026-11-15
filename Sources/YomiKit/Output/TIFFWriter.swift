@@ -1,0 +1,26 @@
+import CoreGraphics
+import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
+public enum TIFFWriter {
+    /// TIFF tag value for LZW, which is lossless for colour, grey and black-and-white pages.
+    private static let lzwCompression = 5
+
+    /// Writes every page into one TIFF file, in order, each at its own scan resolution.
+    public static func write(_ pages: [ProcessedPage], to url: URL, progress: ((Int) -> Void)? = nil) throws {
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL, UTType.tiff.identifier as CFString, pages.count, nil)
+        else { throw ImageWriterError.cannotWrite(url) }
+        for (index, page) in pages.enumerated() {
+            progress?(index)
+            let properties: [CFString: Any] = [
+                kCGImagePropertyDPIWidth: page.resolution,
+                kCGImagePropertyDPIHeight: page.resolution,
+                kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: lzwCompression],
+            ]
+            CGImageDestinationAddImage(destination, page.image, properties as CFDictionary)
+        }
+        guard CGImageDestinationFinalize(destination) else { throw ImageWriterError.cannotWrite(url) }
+    }
+}

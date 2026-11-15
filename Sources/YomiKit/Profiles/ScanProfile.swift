@@ -66,12 +66,21 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public enum FileFormat: String, Codable, CaseIterable, Sendable {
-        case pdf, jpeg
+        case pdf, jpeg, multiPageTIFF
 
         public var title: String {
             switch self {
             case .pdf: "PDF (*.pdf)"
             case .jpeg: "JPEG (*.jpg)"
+            case .multiPageTIFF: "Multi-page TIFF (*.tiff)"
+            }
+        }
+
+        public var fileExtension: String {
+            switch self {
+            case .pdf: "pdf"
+            case .jpeg: "jpg"
+            case .multiPageTIFF: "tiff"
             }
         }
     }
@@ -210,7 +219,11 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     /// One-line summary for the progress panel and profile list.
     public var summary: String {
         var parts = [quality.shortTitle, colorMode.title, sides == .duplex ? "Duplex" : "Simplex"]
-        parts.append(fileFormat == .pdf ? (searchablePDF ? "Searchable PDF" : "PDF") : "JPEG")
+        switch fileFormat {
+        case .pdf: parts.append(searchablePDF ? "Searchable PDF" : "PDF")
+        case .jpeg: parts.append("JPEG")
+        case .multiPageTIFF: parts.append("Multi-page TIFF")
+        }
         return parts.joined(separator: " · ")
     }
 
