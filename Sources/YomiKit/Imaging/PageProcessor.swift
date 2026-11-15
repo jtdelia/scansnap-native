@@ -43,11 +43,6 @@ public struct ProcessedPage: @unchecked Sendable {
 
 public enum PageProcessor {
     private static let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
-    /// Works in extended linear sRGB so colours outside sRGB survive until the Display P3 render.
-    private static let photoContext = CIContext(options: [
-        .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
-        .workingFormat: CIFormat.RGBAh,
-    ])
 
     public static func process(_ page: ScannedPage, options: ProcessingOptions) throws -> ProcessedPage {
         let corrected = options.flattenColumns ? ColumnFlattener.flatten(page) : page
@@ -100,7 +95,8 @@ public enum PageProcessor {
 
         let rgb = CGColorSpace(name: correctsColor ? CGColorSpace.displayP3 : CGColorSpace.sRGB)!
         let gray = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
-        let renderer = correctsColor ? photoContext : context
+        // Colour-corrected pages keep colours outside sRGB until the Display P3 render.
+        let renderer = correctsColor ? ImageRendering.wideGamutContext : context
         guard var output = isColor
             ? renderer.createCGImage(image, from: image.extent.integral, format: .RGBA8, colorSpace: rgb)
             : renderer.createCGImage(image, from: image.extent.integral, format: .L8, colorSpace: gray)

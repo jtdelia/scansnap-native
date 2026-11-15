@@ -83,9 +83,7 @@ public enum OrientationDetector {
 
     private static func rotated(_ image: CGImage, _ orientation: CGImagePropertyOrientation) -> CGImage? {
         let rotated = CIImage(cgImage: image).oriented(orientation)
-        let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
-        let format: CIFormat = space.model == .monochrome ? .L8 : .RGBA8
-        return context.createCGImage(rotated, from: rotated.extent, format: format, colorSpace: space)
+        return ImageRendering.render(rotated, from: rotated.extent, like: image, in: context)
     }
 
     private static func downscaled(_ image: CGImage, maxDimension: CGFloat) -> CGImage? {

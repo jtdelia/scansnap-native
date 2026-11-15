@@ -93,12 +93,15 @@ struct PhotoKitLibrary: PhotoLibrary {
     /// Names of the user's albums, or none until Yomi has full access to Photos.
     static func albumNames() -> [String] {
         guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized else { return [] }
-        var names: [String] = []
+        return albums().compactMap(\.localizedTitle).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// The user's own albums.
+    private static func albums() -> [PHAssetCollection] {
+        var albums: [PHAssetCollection] = []
         PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil)
-            .enumerateObjects { collection, _, _ in
-                if let title = collection.localizedTitle { names.append(title) }
-            }
-        return names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            .enumerateObjects { collection, _, _ in albums.append(collection) }
+        return albums
     }
 
     /// Asks for full access if Yomi hasn't asked yet, then lists the albums.
@@ -123,15 +126,7 @@ struct PhotoKitLibrary: PhotoLibrary {
     }
 
     private static func album(named name: String) -> PHAssetCollection? {
-        var match: PHAssetCollection?
-        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil)
-            .enumerateObjects { collection, _, stop in
-                if collection.localizedTitle == name {
-                    match = collection
-                    stop.pointee = true
-                }
-            }
-        return match
+        albums().first { $0.localizedTitle == name }
     }
 
     private static func libraryError(_ error: Error, otherwise fallback: PhotoLibraryError) -> PhotoLibraryError {
