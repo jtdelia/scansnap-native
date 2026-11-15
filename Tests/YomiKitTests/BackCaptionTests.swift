@@ -107,19 +107,23 @@ struct BackCaptionTests {
         Side.Text(string: string, font: "Bradley Hand Bold", size: 32, ink: (35, 45, 120), x: 60, y: y)
     }
 
-    private static let textRecognition: (available: Bool, comment: Comment) = {
+    private static let textRecognition = Task<Bool, Never>(priority: .high) {
         do {
-            let word = Side.Text(string: "Recognition", font: "Helvetica", size: 48, ink: (0, 0, 0), x: 60, y: 210)
-            let image = try scan(Side(text: [word]), as: .back).cgImage()
-            let reading = BackCaptionReader.read(image)
-            if case let .caption(text) = reading, text.localizedCaseInsensitiveCompare(word.string) == .orderedSame {
-                return (true, "Vision can read rendered text")
+            return try await offTheTaskPool {
+                let word = Side.Text(string: "Recognition", font: "Helvetica", size: 48, ink: (0, 0, 0), x: 60, y: 210)
+                let image = try scan(Side(text: [word]), as: .back).cgImage()
+                let reading = BackCaptionReader.read(image)
+                if case let .caption(text) = reading, text.localizedCaseInsensitiveCompare(word.string) == .orderedSame {
+                    return true
+                }
+                print("VISION-PROBE Vision cannot read rendered text: \(reading)")
+                return false
             }
-            return (false, Comment(rawValue: "Vision cannot read rendered text: \(reading)"))
         } catch {
-            return (false, Comment(rawValue: "Vision capability probe failed: \(error as NSError)"))
+            print("VISION-PROBE Vision capability probe failed: \(error as NSError)")
+            return false
         }
-    }()
+    }
 
     private static let handwrittenNote = [
         handwriting("Grandma and Joe", y: 210),
@@ -146,7 +150,7 @@ struct BackCaptionTests {
         }
     }
 
-    @Test(.enabled(if: textRecognition.available, textRecognition.comment))
+    @Test(.enabled("Vision text recognition is unavailable") { await textRecognition.value })
     func handwrittenBackBecomesTheCaptionAndIsNotSaved() async throws {
         let sheet = try await Self.process(front: Self.picture, back: Side(text: Self.handwrittenNote))
         #expect(sheet.pages.map(\.source) == [.front])
@@ -155,7 +159,7 @@ struct BackCaptionTests {
         #expect(caption.contains("1962"))
     }
 
-    @Test(.enabled(if: textRecognition.available, textRecognition.comment))
+    @Test(.enabled("Vision text recognition is unavailable") { await textRecognition.value })
     func handwrittenNoteIsReadOnCPU() async throws {
         let reading = try await offTheTaskPool {
             let back = try Self.scan(Side(text: Self.handwrittenNote), as: .back).cgImage()
@@ -229,7 +233,7 @@ struct BackCaptionTests {
         }
     }
 
-    @Test(.enabled(if: textRecognition.available, textRecognition.comment),
+    @Test(.enabled("Vision text recognition is unavailable") { await textRecognition.value },
           arguments: [("upside down", CGFloat.pi), ("sideways", .pi / 2), ("sideways the other way", -.pi / 2)])
     func writingInAnyDirectionIsRead(_ name: String, angle: CGFloat) async throws {
         let back = Side(text: Self.turned(Self.handwrittenNote, by: angle))
@@ -237,7 +241,7 @@ struct BackCaptionTests {
         #expect(sheet.pages.first?.caption?.localizedCaseInsensitiveContains("Lake Tahoe") == true, "\(sheet.notes)")
     }
 
-    @Test(.enabled(if: textRecognition.available, textRecognition.comment))
+    @Test(.enabled("Vision text recognition is unavailable") { await textRecognition.value })
     func onlyHandwritingFromABackWithPrintingBecomesTheCaption() async throws {
         let back = Side(text: Self.brandPrinting + Self.labPrinting + Self.handwrittenNote)
         let sheet = try await Self.process(front: Self.picture, back: back)
@@ -248,14 +252,14 @@ struct BackCaptionTests {
         #expect(!caption.contains("2847"))
     }
 
-    @Test(.enabled(if: textRecognition.available, textRecognition.comment))
+    @Test(.enabled("Vision text recognition is unavailable") { await textRecognition.value })
     func printFedBackSideFirstGetsTheCaptionFromItsFront() async throws {
         let sheet = try await Self.process(front: Side(text: Self.handwrittenNote), back: Self.picture)
         #expect(sheet.pages.map(\.source) == [.back])
         #expect(sheet.pages.first?.caption?.localizedCaseInsensitiveContains("Lake Tahoe") == true, "\(sheet.notes)")
     }
 
-    @Test(.enabled(if: textRecognition.available, textRecognition.comment), arguments: ["1962", "7/4/62"])
+    @Test(.enabled("Vision text recognition is unavailable") { await textRecognition.value }, arguments: ["1962", "7/4/62"])
     func handwrittenDateOnItsOwnBecomesTheCaption(date: String) async throws {
         let back = Side(text: [Self.handwriting(date, y: 260)] + Self.labPrinting)
         let sheet = try await Self.process(front: Self.picture, back: back)
@@ -389,7 +393,7 @@ struct BackCaptionTests {
         #expect(sheet.blankSides == 1, "\(sheet.notes)")
     }
 
-    @Test(.enabled(if: textRecognition.available, textRecognition.comment),
+    @Test(.enabled("Vision text recognition is unavailable") { await textRecognition.value },
           arguments: [("brand printing", brandPrinting), ("lab printing", labPrinting)])
     func printingCountsAsBlank(_ name: String, printing: [Side.Text]) async throws {
         let sheet = try await Self.process(front: Self.picture, back: Side(text: printing))
