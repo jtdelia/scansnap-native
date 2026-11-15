@@ -178,6 +178,32 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.numberDigits = numberDigits
     }
 
+    /// Every key is optional, so scan profiles saved by any earlier version keep loading.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ScanProfile(name: "New Profile")
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? defaults.id
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? defaults.name
+        folderPath = try container.decodeIfPresent(String.self, forKey: .folderPath) ?? defaults.folderPath
+        afterScan = try container.decodeIfPresent(AfterScan.self, forKey: .afterScan) ?? defaults.afterScan
+        quality = try container.decodeIfPresent(Quality.self, forKey: .quality) ?? defaults.quality
+        colorMode = try container.decodeIfPresent(ColorMode.self, forKey: .colorMode) ?? defaults.colorMode
+        sides = try container.decodeIfPresent(Sides.self, forKey: .sides) ?? defaults.sides
+        skipBlankPages = try container.decodeIfPresent(Bool.self, forKey: .skipBlankPages) ?? defaults.skipBlankPages
+        reduceBleedThrough = try container.decodeIfPresent(Bool.self, forKey: .reduceBleedThrough)
+            ?? defaults.reduceBleedThrough
+        autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? defaults.autoRotate
+        cropAndStraighten = try container.decodeIfPresent(Bool.self, forKey: .cropAndStraighten)
+            ?? defaults.cropAndStraighten
+        fileFormat = try container.decodeIfPresent(FileFormat.self, forKey: .fileFormat) ?? defaults.fileFormat
+        searchablePDF = try container.decodeIfPresent(Bool.self, forKey: .searchablePDF) ?? defaults.searchablePDF
+        compression = try container.decodeIfPresent(Compression.self, forKey: .compression) ?? defaults.compression
+        fileNaming = try container.decodeIfPresent(FileNaming.self, forKey: .fileNaming) ?? defaults.fileNaming
+        filePrefix = try container.decodeIfPresent(String.self, forKey: .filePrefix) ?? defaults.filePrefix
+        nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
+        numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
+    }
+
     public static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Documents/Yomi", isDirectory: true)
 
@@ -202,6 +228,13 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         return options
     }
 
+    /// IDs of the built-in "Photos – Quick" and "Photos – Keepers" scan profiles. Never change
+    /// them: saved scan profiles with these IDs get new photo settings switched on.
+    public static let builtInPhotoIDs: Set<UUID> = [
+        UUID(uuidString: "4D211260-1BF8-426E-B9B8-4592CB2614D5")!,
+        UUID(uuidString: "BC554CB0-727B-446B-BC17-638B509F0832")!,
+    ]
+
     public static let defaults: [ScanProfile] = [
         ScanProfile(name: "Scan to Yomi Folder"),
         ScanProfile(name: "Receipts", quality: .automatic, colorMode: .auto, sides: .simplex),
@@ -209,4 +242,12 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
                     skipBlankPages: false, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg, searchablePDF: false,
                     compression: .low),
     ]
+}
+
+extension KeyedDecodingContainer {
+    /// Decodes a photo setting; when the key is missing, it is on for the built-in photo scan
+    /// profiles and off for every other scan profile.
+    func decodePhotoSetting(forKey key: Key, profileID: UUID) throws -> Bool {
+        try decodeIfPresent(Bool.self, forKey: key) ?? ScanProfile.builtInPhotoIDs.contains(profileID)
+    }
 }
