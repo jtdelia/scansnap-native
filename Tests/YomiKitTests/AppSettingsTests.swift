@@ -87,6 +87,20 @@ struct AppSettingsTests {
         #expect(try AppSettings(json: saved.json()).profiles.first?.correctColor == true)
     }
 
+    @Test func cropToPrintFollowsTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { !$0.cropToPrint })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Keepers"}]}"#
+            #expect(try AppSettings(json: Data(json.utf8)).profiles.first?.cropToPrint == true)
+        }
+        #expect(ScanProfile.builtInPhotoProfiles.allSatisfy { $0.cropToPrint })
+        var profile = ScanProfile(name: "Prints")
+        profile.cropToPrint = true
+        let saved = AppSettings(profiles: [profile], buttonProfileID: nil, addedPhotoProfiles: false)
+        #expect(try AppSettings(json: saved.json()).profiles.first?.cropToPrint == true)
+    }
+
     @Test func saveDestinationFollowsTheFixedIDRule() throws {
         let settings = try AppSettings(json: Self.fixture("settings-v1"))
         #expect(settings.profiles.allSatisfy { $0.saveTo == .folder && $0.photosAlbum.isEmpty })
