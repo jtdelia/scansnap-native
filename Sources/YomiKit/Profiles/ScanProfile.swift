@@ -66,13 +66,16 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public enum FileFormat: String, Codable, CaseIterable, Sendable {
-        case pdf, jpeg, multiPageTIFF
+        case pdf, jpeg, png, tiff, multiPageTIFF, heic
 
         public var title: String {
             switch self {
             case .pdf: "PDF (*.pdf)"
             case .jpeg: "JPEG (*.jpg)"
+            case .png: "PNG (*.png)"
+            case .tiff: "TIFF (*.tiff)"
             case .multiPageTIFF: "Multi-page TIFF (*.tiff)"
+            case .heic: "HEIC (*.heic)"
             }
         }
 
@@ -80,7 +83,25 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
             switch self {
             case .pdf: "pdf"
             case .jpeg: "jpg"
-            case .multiPageTIFF: "tiff"
+            case .png: "png"
+            case .tiff, .multiPageTIFF: "tiff"
+            case .heic: "heic"
+            }
+        }
+
+        /// Whether every page is saved as its own image file.
+        public var savesPagesSeparately: Bool {
+            switch self {
+            case .jpeg, .png, .tiff, .heic: true
+            case .pdf, .multiPageTIFF: false
+            }
+        }
+
+        /// Whether the compression setting applies: JPEG, HEIC and the images inside PDFs are lossy.
+        public var usesCompression: Bool {
+            switch self {
+            case .pdf, .jpeg, .heic: true
+            case .png, .tiff, .multiPageTIFF: false
             }
         }
     }
@@ -239,7 +260,10 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         switch fileFormat {
         case .pdf: parts.append(searchablePDF ? "Searchable PDF" : "PDF")
         case .jpeg: parts.append("JPEG")
+        case .png: parts.append("PNG")
+        case .tiff: parts.append("TIFF")
         case .multiPageTIFF: parts.append("Multi-page TIFF")
+        case .heic: parts.append("HEIC")
         }
         return parts.joined(separator: " · ")
     }
@@ -252,7 +276,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         options.autoRotate = autoRotate
         options.colorMode = colorMode
         options.quality = quality
-        options.documentTone = !(colorMode == .color && fileFormat == .jpeg)
+        options.documentTone = !(colorMode == .color && fileFormat.savesPagesSeparately)
         return options
     }
 
@@ -272,7 +296,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     /// Auto-rotate stays off because text-based rotation misfires on photos.
     private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
         ScanProfile(id: UUID(uuidString: id)!, name: name, quality: quality, colorMode: .color, sides: .duplex,
-                    skipBlankPages: true, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg,
+                    skipBlankPages: true, reduceBleedThrough: false, autoRotate: false, fileFormat: .heic,
                     searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage, correctColor: true)
     }
 
