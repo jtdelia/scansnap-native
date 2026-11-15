@@ -276,10 +276,16 @@ struct ProfileEditor: View {
             }
 
             Section("Save To") {
-                Picker("Save to", selection: $profile.saveTo) {
-                    ForEach(ScanProfile.SaveDestination.allCases, id: \.self) { Text($0.title).tag($0) }
+                Picker("Save to", selection: Binding(get: { profile.destination }, set: { profile.saveTo = $0 })) {
+                    ForEach(profile.fileFormat.savesPagesSeparately ? ScanProfile.SaveDestination.allCases : [.folder],
+                            id: \.self) { Text($0.title).tag($0) }
                 }
-                if profile.saveTo.savesToPhotos {
+                if !profile.fileFormat.savesPagesSeparately {
+                    Text("Photos can't import PDF or multi-page TIFF files, so they're saved to the folder.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if profile.destination.savesToPhotos {
                     LabeledContent("Album") {
                         HStack {
                             TextField("Album", text: $profile.photosAlbum, prompt: Text("None (library only)"))
@@ -300,7 +306,7 @@ struct ProfileEditor: View {
                         }
                     }
                 }
-                LabeledContent(profile.saveTo.savesToFolder ? "Folder" : "Folder if Photos fails") {
+                LabeledContent(profile.destination.savesToFolder ? "Folder" : "Folder if Photos fails") {
                     HStack {
                         Text(profile.folderURL.path(percentEncoded: false))
                             .lineLimit(1)
@@ -413,7 +419,9 @@ struct ProfileEditor: View {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
                 Toggle("Crop to the print's edges instead of paper size", isOn: $profile.cropToPrint)
                 Toggle("Rotate photos upright using faces", isOn: $profile.rotateByFaces)
-                Toggle("Auto-enhance, keeping an untouched copy named “_original”", isOn: $profile.autoEnhance)
+                if profile.fileFormat.savesPagesSeparately {
+                    Toggle("Auto-enhance, keeping the untouched original", isOn: $profile.autoEnhance)
+                }
                 Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
                 Toggle("Save writing on the back as the photo's caption, not the back itself",
                        isOn: $profile.backCaptions)

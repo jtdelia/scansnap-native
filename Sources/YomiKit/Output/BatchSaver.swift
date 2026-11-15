@@ -55,11 +55,11 @@ public enum BatchSaver {
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
                             date: Date = Date(), progress: ((String) -> Void)? = nil) throws -> SavedBatch {
         let folder = profile.folderURL.lastPathComponent
-        guard profile.saveTo.savesToPhotos else {
+        guard profile.destination.savesToPhotos else {
             let files = try DocumentWriter.save(pages, profile: profile, date: date, progress: progress)
             return SavedBatch(files: files, warning: nil, place: folder)
         }
-        if profile.saveTo.savesToFolder {
+        if profile.destination.savesToFolder {
             let saved = try DocumentWriter.saveFiles(pages, profile: profile, date: date, progress: progress)
             let files = saved.map(\.url)
             switch addToPhotos(saved, profile: profile, library: photoLibrary) {

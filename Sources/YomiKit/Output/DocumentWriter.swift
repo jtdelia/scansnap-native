@@ -41,7 +41,7 @@ public enum DocumentWriter {
             let filePages = Array(pages[offset..<end])
             let name = unclashedName(in: folder, names[file], format: profile.fileFormat)
             let url = folder.appendingPathComponent(fileName(name, format: profile.fileFormat))
-            guard profile.autoEnhance else {
+            guard profile.enhancesPhotos else {
                 try write(filePages, to: url, profile: profile, offset: offset, total: pages.count, progress: progress)
                 return SavedFile(url: url, original: nil, name: name)
             }

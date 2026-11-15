@@ -307,6 +307,13 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
 
     public var folderURL: URL { URL(fileURLWithPath: folderPath, isDirectory: true) }
 
+    /// Where batches go. Photos imports only formats that save each page as its own image, so PDF and multi-page
+    /// TIFF always go to the folder.
+    public var destination: SaveDestination { fileFormat.savesPagesSeparately ? saveTo : .folder }
+
+    /// Whether files are saved auto-enhanced. Only formats that save each page as its own image are enhanced.
+    public var enhancesPhotos: Bool { autoEnhance && fileFormat.savesPagesSeparately }
+
     /// One-line summary for the progress panel and profile list.
     public var summary: String {
         var parts = [quality.shortTitle, colorMode.title, sides == .duplex ? "Duplex" : "Simplex"]

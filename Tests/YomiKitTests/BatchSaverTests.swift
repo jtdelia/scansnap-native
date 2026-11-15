@@ -139,6 +139,20 @@ struct BatchSaverTests {
         #expect(saved.warning?.contains(staging.path) == true, "\(saved.warning ?? "")")
     }
 
+    @Test(arguments: [ScanProfile.FileFormat.pdf, .multiPageTIFF], [ScanProfile.SaveDestination.photos, .folderAndPhotos])
+    func formatsPhotosCannotImportSaveToTheFolder(format: ScanProfile.FileFormat,
+                                                  saveTo: ScanProfile.SaveDestination) throws {
+        var profile = try Self.profile(saveTo)
+        profile.fileFormat = format
+        profile.searchablePDF = false
+        let library = FakePhotoLibrary()
+        let saved = try Self.save(profile, library: library)
+        #expect(library.added.isEmpty)
+        #expect(Self.folderContents(profile) == ["2026-11-14 21.42.05_001.\(format.fileExtension)"])
+        #expect(saved.warning == nil)
+        #expect(saved.place == profile.folderURL.lastPathComponent)
+    }
+
     @Test func folderOnlyNeverUsesPhotos() throws {
         let profile = try Self.profile(.folder, album: "Family")
         let library = FakePhotoLibrary()

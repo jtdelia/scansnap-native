@@ -69,7 +69,17 @@ struct AutoEnhanceTests {
         ])
     }
 
-    @Test(arguments: [ScanProfile.FileFormat.jpeg, .multiPageTIFF])
+    @Test(arguments: [ScanProfile.FileFormat.pdf, .multiPageTIFF])
+    func formatsHoldingSeveralPagesAreNotEnhanced(format: ScanProfile.FileFormat) async throws {
+        let folder = try Self.temporaryFolder()
+        let profile = Self.profile(autoEnhance: true, folder: folder, namePattern: [.profileName], fileFormat: format)
+        _ = try await offTheTaskPool {
+            try DocumentWriter.save([Self.dullPhoto(), Self.dullPhoto()], profile: profile, date: Self.date)
+        }
+        #expect(try Self.folderContents(folder) == ["Prints.\(format.fileExtension)"])
+    }
+
+    @Test(arguments: [ScanProfile.FileFormat.jpeg, .tiff])
     func originalIsByteForByteTheUnenhancedSave(format: ScanProfile.FileFormat) throws {
         let plainFolder = try Self.temporaryFolder(), enhancedFolder = try Self.temporaryFolder()
         let plain = Self.profile(autoEnhance: false, folder: plainFolder, namePattern: [.profileName], fileFormat: format)
