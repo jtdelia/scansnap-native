@@ -3,7 +3,9 @@ import UniformTypeIdentifiers
 
 /// Saves a finished batch according to a profile's file settings.
 public enum DocumentWriter {
-    /// Writes `pages` and returns the created files. `profile.nextNumber` is advanced by the caller.
+    /// Writes `pages` and returns the created files. With auto-enhance on, each returned file is the enhanced
+    /// one and its untouched copy, named with `_original`, sits beside it. `profile.nextNumber` is advanced by
+    /// the caller.
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, date: Date = Date(),
                             progress: ((String) -> Void)? = nil) throws -> [URL] {
         guard !pages.isEmpty else { return [] }
@@ -11,45 +13,47 @@ public enum DocumentWriter {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let starts = firstPages(pages: pages.count, profile: profile)
         let names = baseNames(profile, firstPages: starts, date: date)
-        let files = starts.indices.map { file in
-            let end = file + 1 < starts.count ? starts[file + 1] - 1 : pages.count
-            return (name: names[file], offset: starts[file] - 1, pages: Array(pages[(starts[file] - 1)..<end]))
-        }
+        let ext = profile.fileFormat.fileExtension
 
+        return try starts.indices.map { file in
+            let end = file + 1 < starts.count ? starts[file + 1] - 1 : pages.count
+            let offset = starts[file] - 1
+            let filePages = Array(pages[offset..<end])
+            let url = uniqueURL(in: folder, base: names[file], ext: ext)
+            guard profile.autoEnhance else {
+                try write(filePages, to: url, profile: profile, offset: offset, total: pages.count, progress: progress)
+                return url
+            }
+            try write(filePages.map(AutoEnhancer.enhance), to: url, profile: profile, offset: offset,
+                      total: pages.count, progress: progress)
+            let original = uniqueURL(in: folder, base: url.deletingPathExtension().lastPathComponent + "_original",
+                                     ext: ext)
+            try write(filePages, to: original, profile: profile, offset: offset, total: pages.count, progress: progress)
+            return url
+        }
+    }
+
+    /// Writes one file holding `pages`, which start at batch page `offset + 1` of `total`.
+    private static func write(_ pages: [ProcessedPage], to url: URL, profile: ScanProfile, offset: Int, total: Int,
+                              progress: ((String) -> Void)?) throws {
         switch profile.fileFormat {
         case .pdf:
-            return try files.map { file in
-                let url = uniqueURL(in: folder, base: file.name, ext: "pdf")
-                try PDFWriter.write(file.pages, to: url, jpegQuality: profile.compression.jpegQuality,
-                                    searchable: profile.searchablePDF) { index in
-                    let page = file.offset + index + 1
-                    progress?(profile.searchablePDF
-                        ? "Recognizing text on page \(page) of \(pages.count)…"
-                        : "Saving page \(page) of \(pages.count)…")
-                }
-                return url
+            try PDFWriter.write(pages, to: url, jpegQuality: profile.compression.jpegQuality,
+                                searchable: profile.searchablePDF) { index in
+                let page = offset + index + 1
+                progress?(profile.searchablePDF
+                    ? "Recognizing text on page \(page) of \(total)…"
+                    : "Saving page \(page) of \(total)…")
             }
-        case .jpeg, .png, .tiff, .heic:
-            var urls: [URL] = []
+        case .jpeg, .png, .heic:
             for (index, page) in pages.enumerated() {
-                progress?("Saving page \(index + 1) of \(pages.count)…")
-                let url = uniqueURL(in: folder, base: names[index], ext: profile.fileFormat.fileExtension)
-                if profile.fileFormat == .tiff {
-                    try TIFFWriter.write([page], to: url)
-                } else {
-                    try ImageWriter.write(page.image, to: url, type: profile.fileFormat.imageType,
-                                          resolution: page.resolution, quality: profile.compression.jpegQuality)
-                }
-                urls.append(url)
+                progress?("Saving page \(offset + index + 1) of \(total)…")
+                try ImageWriter.write(page.image, to: url, type: profile.fileFormat.imageType,
+                                      resolution: page.resolution, quality: profile.compression.jpegQuality)
             }
-            return urls
-        case .multiPageTIFF:
-            return try files.map { file in
-                let url = uniqueURL(in: folder, base: file.name, ext: profile.fileFormat.fileExtension)
-                try TIFFWriter.write(file.pages, to: url) { index in
-                    progress?("Saving page \(file.offset + index + 1) of \(pages.count)…")
-                }
-                return url
+        case .tiff, .multiPageTIFF:
+            try TIFFWriter.write(pages, to: url) { index in
+                progress?("Saving page \(offset + index + 1) of \(total)…")
             }
         }
     }
