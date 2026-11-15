@@ -50,18 +50,24 @@ struct PrintSideTests {
         ScanProfile.builtInPhotoProfiles[0]
     }
 
-    @Test func printFedBackSideFirstIsSwapped() throws {
-        let sheet = try SheetProcessor.process(front: Self.side(.front, Self.writing),
-                                               back: Self.side(.back, Self.picture), profile: Self.photoProfile())
-        #expect(sheet.pages.map(\.source) == [.back, .front])
+    private static func process(front: @escaping Content, back: @escaping Content,
+                                profile: ScanProfile = photoProfile()) async throws -> SheetProcessor.Result {
+        try await offTheTaskPool {
+            try SheetProcessor.process(front: side(.front, front), back: side(.back, back), profile: profile)
+        }
+    }
+
+    @Test func printFedBackSideFirstIsSwapped() async throws {
+        let sheet = try await Self.process(front: Self.writing, back: Self.picture)
+        #expect(sheet.pages.map(\.source) == [.back])
     }
 
     @Test(arguments: DocumentOutputTests.profiles.map(\.name))
-    func documentProfileNeverSwapsSides(name: String) throws {
+    func documentProfileNeverSwapsSides(name: String) async throws {
         let profile = try #require(DocumentOutputTests.profiles.first { $0.name == name })
         #expect(!profile.findPictureSide)
-        let sheet = try SheetProcessor.process(front: Self.side(.front, Self.writing),
-                                               back: Self.side(.back, Self.picture), profile: profile)
+        #expect(!profile.backCaptions)
+        let sheet = try await Self.process(front: Self.writing, back: Self.picture, profile: profile)
         #expect(sheet.pages.first?.source == .front)
         #expect(!sheet.notes.contains { $0.contains("back-side-first") })
     }
@@ -75,9 +81,8 @@ struct PrintSideTests {
         ("pale picture on the back", writing, snow),
         ("dark picture on the back", writing, night),
     ] as [(String, Content, Content)])
-    func unclearSheetKeepsTheFeedDirection(_ name: String, front: Content, back: Content) throws {
-        let sheet = try SheetProcessor.process(front: Self.side(.front, front), back: Self.side(.back, back),
-                                               profile: Self.photoProfile())
+    func unclearSheetKeepsTheFeedDirection(_ name: String, front: @escaping Content, back: @escaping Content) async throws {
+        let sheet = try await Self.process(front: front, back: back)
         #expect(sheet.pages.first?.source == .front)
         #expect(!sheet.notes.contains { $0.contains("back-side-first") })
     }

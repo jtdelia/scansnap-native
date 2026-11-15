@@ -137,6 +137,20 @@ struct AppSettingsTests {
         #expect(try AppSettings(json: saved.json()).profiles.first?.findPictureSide == true)
     }
 
+    @Test func backCaptionsFollowTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { !$0.backCaptions })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Keepers"}]}"#
+            #expect(try AppSettings(json: Data(json.utf8)).profiles.first?.backCaptions == true)
+        }
+        #expect(ScanProfile.builtInPhotoProfiles.allSatisfy { $0.backCaptions })
+        #expect(ScanProfile.defaults.filter { !ScanProfile.builtInPhotoIDs.contains($0.id) }.allSatisfy { !$0.backCaptions })
+        let saved = AppSettings(profiles: [ScanProfile(name: "Prints", backCaptions: true)], buttonProfileID: nil,
+                                addedPhotoProfiles: false)
+        #expect(try AppSettings(json: saved.json()).profiles.first?.backCaptions == true)
+    }
+
     @Test(arguments: [(AppSettings.Appearance.system, "system"), (.light, "light"), (.dark, "dark")])
     func appearanceIsSavedAndLoaded(appearance: AppSettings.Appearance, saved: String) throws {
         let json = try AppSettings(appearance: appearance).json()
