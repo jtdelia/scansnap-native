@@ -23,6 +23,9 @@ type:feature|a2eeef|New behavior
 type:plan|5319e7|A larger goal split into build tasks
 type:task|0e8a16|An atomic build task
 needs-triage|fbca04|Waiting for a maintainer to accept it
+needs-info|d876e3|Waiting on reporter for more information
+ready-for-agent|0e8a16|Fully specified, ready for an AFK agent
+ready-for-human|c5def5|Requires human implementation
 agent-ready|1d76db|Ready for the agent to implement
 blocked|b60205|Waiting on other work
 EOF
