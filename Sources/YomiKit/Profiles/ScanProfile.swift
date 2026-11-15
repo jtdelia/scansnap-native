@@ -344,20 +344,20 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
 
     /// IDs of the built-in "Photos – Quick" and "Photos – Keepers" scan profiles. Never change
     /// them: saved scan profiles with these IDs get new photo settings switched on.
-    public static let builtInPhotoIDs: Set<UUID> = [
-        UUID(uuidString: "4D211260-1BF8-426E-B9B8-4592CB2614D5")!,
-        UUID(uuidString: "BC554CB0-727B-446B-BC17-638B509F0832")!,
-    ]
+    private static let quickID = UUID(uuidString: "4D211260-1BF8-426E-B9B8-4592CB2614D5")!
+    private static let keepersID = UUID(uuidString: "BC554CB0-727B-446B-BC17-638B509F0832")!
+
+    public static let builtInPhotoIDs = Set(builtInPhotoProfiles.map(\.id))
 
     /// The built-in photo scan profiles, as new installs get them and existing installs gain them once.
     public static let builtInPhotoProfiles: [ScanProfile] = [
-        photoProfile(id: "4D211260-1BF8-426E-B9B8-4592CB2614D5", name: "Photos – Quick", quality: .fine),
-        photoProfile(id: "BC554CB0-727B-446B-BC17-638B509F0832", name: "Photos – Keepers", quality: .excellent),
+        photoProfile(id: quickID, name: "Photos – Quick", quality: .fine),
+        photoProfile(id: keepersID, name: "Photos – Keepers", quality: .excellent),
     ]
 
     /// Text-only auto-rotate stays off because it misfires on photos; face rotation takes its place.
-    private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
-        ScanProfile(id: UUID(uuidString: id)!, name: name, saveTo: .photos, quality: quality, colorMode: .color,
+    private static func photoProfile(id: UUID, name: String, quality: Quality) -> ScanProfile {
+        ScanProfile(id: id, name: name, saveTo: .photos, quality: quality, colorMode: .color,
                     sides: .duplex, skipBlankPages: true, reduceBleedThrough: false, autoRotate: false,
                     fileFormat: .heic, searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage,
                     correctColor: true, cropToPrint: true, rotateByFaces: true, autoEnhance: true,
@@ -376,7 +376,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     /// or `nil` when `dpi` is not a photo resolution.
     public static func commandLinePhoto(dpi: Int, folder: URL) -> ScanProfile? {
         guard photoResolutions.contains(dpi),
-              var profile = builtInPhotoProfiles.first(where: { $0.name == "Photos – Keepers" }),
+              var profile = builtInPhotoProfiles.first(where: { $0.id == keepersID }),
               let quality = Quality.allCases.first(where: { $0 != .automatic && $0.outputDPI(pageLengthInches: 0) == dpi })
         else { return nil }
         profile.folderPath = folder.path
