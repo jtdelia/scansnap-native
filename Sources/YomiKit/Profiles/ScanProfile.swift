@@ -183,6 +183,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var correctColor: Bool
     /// Crop to the print's own edges instead of to paper; takes the place of `cropAndStraighten`.
     public var cropToPrint: Bool
+    /// Rotate prints upright by faces, using text only when there are none. Replaces `autoRotate` when on.
+    public var rotateByFaces: Bool
     /// Save each file with Core Image's auto-adjustments, plus an untouched copy named with `_original`.
     public var autoEnhance: Bool
     /// Save the picture side of a print fed back-side-first as the photo, keeping the feed
@@ -216,6 +218,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         numberDigits: Int = 3,
         correctColor: Bool = false,
         cropToPrint: Bool = false,
+        rotateByFaces: Bool = false,
         autoEnhance: Bool = false,
         findPictureSide: Bool = false,
         backCaptions: Bool = false
@@ -243,6 +246,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.numberDigits = numberDigits
         self.correctColor = correctColor
         self.cropToPrint = cropToPrint
+        self.rotateByFaces = rotateByFaces
         self.autoEnhance = autoEnhance
         self.findPictureSide = findPictureSide
         self.backCaptions = backCaptions
@@ -280,6 +284,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
         correctColor = try container.decodePhotoSetting(forKey: .correctColor, profileID: id)
         cropToPrint = try container.decodePhotoSetting(forKey: .cropToPrint, profileID: id)
+        rotateByFaces = try container.decodePhotoSetting(forKey: .rotateByFaces, profileID: id)
         autoEnhance = try container.decodePhotoSetting(forKey: .autoEnhance, profileID: id)
         findPictureSide = try container.decodePhotoSetting(forKey: .findPictureSide, profileID: id)
         backCaptions = try container.decodePhotoSetting(forKey: .backCaptions, profileID: id)
@@ -323,6 +328,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         options.skipBlankPages = skipBlankPages
         options.reduceBleedThrough = reduceBleedThrough
         options.autoRotate = autoRotate
+        options.rotateByFaces = rotateByFaces
         options.colorMode = colorMode
         options.quality = quality
         options.documentTone = !(colorMode == .color && fileFormat.savesPagesSeparately)
@@ -342,12 +348,13 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         photoProfile(id: "BC554CB0-727B-446B-BC17-638B509F0832", name: "Photos – Keepers", quality: .excellent),
     ]
 
-    /// Auto-rotate stays off because text-based rotation misfires on photos.
+    /// Text-only auto-rotate stays off because it misfires on photos; face rotation takes its place.
     private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
         ScanProfile(id: UUID(uuidString: id)!, name: name, saveTo: .photos, quality: quality, colorMode: .color,
                     sides: .duplex, skipBlankPages: true, reduceBleedThrough: false, autoRotate: false,
                     fileFormat: .heic, searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage,
-                    correctColor: true, cropToPrint: true, autoEnhance: true, findPictureSide: true,
+                    correctColor: true, cropToPrint: true, rotateByFaces: true, autoEnhance: true,
+                    findPictureSide: true,
                     backCaptions: true)
     }
 

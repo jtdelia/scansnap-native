@@ -101,6 +101,27 @@ struct AppSettingsTests {
         #expect(try AppSettings(json: saved.json()).profiles.first?.cropToPrint == true)
     }
 
+    @Test func rotateByFacesFollowsTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { !$0.rotateByFaces && !$0.processingOptions.rotateByFaces })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Keepers", "autoRotate": false}]}"#
+            let profile = try #require(try AppSettings(json: Data(json.utf8)).profiles.first)
+            #expect(profile.rotateByFaces)
+            #expect(profile.processingOptions.rotateByFaces)
+        }
+        var profile = ScanProfile(name: "Prints")
+        profile.rotateByFaces = true
+        let saved = AppSettings(profiles: [profile], buttonProfileID: nil, addedPhotoProfiles: false)
+        #expect(try AppSettings(json: saved.json()).profiles.first?.rotateByFaces == true)
+    }
+
+    @Test func builtInPhotoProfilesRotateByFacesAndDocumentProfilesDoNot() {
+        for profile in ScanProfile.defaults {
+            #expect(profile.rotateByFaces == ScanProfile.builtInPhotoIDs.contains(profile.id))
+        }
+    }
+
     @Test func saveDestinationFollowsTheFixedIDRule() throws {
         let settings = try AppSettings(json: Self.fixture("settings-v1"))
         #expect(settings.profiles.allSatisfy { $0.saveTo == .folder && $0.photosAlbum.isEmpty })

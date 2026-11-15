@@ -16,6 +16,8 @@ public struct ProcessingOptions: Sendable, Equatable {
     /// Deepen text blacks and whiten paper (off for photos).
     public var documentTone = true
     public var autoRotate = true
+    /// Rotate photos upright by faces, using text only when there are none (off for documents).
+    public var rotateByFaces = false
     public var colorMode: ScanProfile.ColorMode = .auto
     /// Decides the saved resolution (Automatic and Better scan at 300 dpi and downsample).
     public var quality: ScanProfile.Quality = .fine
@@ -108,7 +110,8 @@ public enum PageProcessor {
             output = cleanEdges(output, resolution: resolution)
         }
         let blank = options.skipBlankPages && inkFraction(output) < options.blankInkFraction
-        if options.autoRotate, !blank, let rotated = OrientationDetector.upright(output) {
+        if !blank, let rotated = options.rotateByFaces ? OrientationDetector.uprightPhoto(output)
+            : options.autoRotate ? OrientationDetector.upright(output) : nil {
             output = rotated
         }
         return ProcessedPage(image: output, resolution: resolution, isBlank: blank, source: side, isColor: isColor)

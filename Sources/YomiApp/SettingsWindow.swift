@@ -412,6 +412,7 @@ struct ProfileEditor: View {
             Section("Photos") {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
                 Toggle("Crop to the print's edges instead of paper size", isOn: $profile.cropToPrint)
+                Toggle("Rotate photos upright using faces", isOn: $profile.rotateByFaces)
                 Toggle("Auto-enhance, keeping an untouched copy named “_original”", isOn: $profile.autoEnhance)
                 Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
                 Toggle("Save writing on the back as the photo's caption, not the back itself",
