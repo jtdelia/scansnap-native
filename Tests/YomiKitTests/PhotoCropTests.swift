@@ -138,22 +138,25 @@ struct PhotoCropTests {
         return ScannedPage(side: .front, sheetIndex: 0, width: w, height: h, resolution: dpi, rgb: rgb)
     }
 
-    @Test func builtInPhotoProfilesCropDarkPrintsAndDocumentProfilesDoNot() throws {
+    @Test func builtInPhotoProfilesCropDarkPrintsAndDocumentProfilesDoNot() async throws {
         let raw = try Self.scannedPage(try Self.scan(width: 3.5, height: 5, tone: .dark, skew: 0.02), dpi: 150)
         // Blank detection counts only ink darker than the print, so it drops this plain dark print.
         // Sizes are in scan pixels: no profile here resamples a 150 dpi scan.
-        func firstPage(_ profile: ScanProfile) throws -> CGImage {
+        func firstPage(_ profile: ScanProfile) async throws -> CGImage {
             var profile = profile
             profile.skipBlankPages = false
             profile.sides = .simplex
-            return try #require(try SheetProcessor.process(front: raw, back: raw, profile: profile).pages.first).image
+            let sheet = try await offTheTaskPool { [profile] in
+                try SheetProcessor.process(front: raw, back: raw, profile: profile)
+            }
+            return try #require(sheet.pages.first).image
         }
         for profile in ScanProfile.builtInPhotoProfiles {
-            let image = try firstPage(profile)
+            let image = try await firstPage(profile)
             #expect(abs(Double(image.width) / 150 - 3.5) < 0.06, "\(profile.name)")
             #expect(abs(Double(image.height) / 150 - 5) < 0.06, "\(profile.name)")
         }
-        let document = try firstPage(try #require(ScanProfile.defaults.first { $0.name == "Scan to Yomi Folder" }))
+        let document = try await firstPage(try #require(ScanProfile.defaults.first { $0.name == "Scan to Yomi Folder" }))
         #expect(Double(document.width) / 150 > 8)
     }
 
