@@ -142,7 +142,8 @@ struct ScanProgressView: View {
             Spacer()
             if model.jobState == .running {
                 Button("Stop") { model.cancelScan() }
-                    .buttonStyle(.glass(.regular.interactive()))            }
+                    .buttonStyle(.glass(.regular.interactive()))
+            }
         }
     }
 
