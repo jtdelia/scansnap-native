@@ -127,6 +127,7 @@ struct SettingsView: View {
         switch profile.fileFormat {
         case .pdf: "doc.richtext"
         case .jpeg: "photo"
+        case .multiPageTIFF: "doc.on.doc"
         }
     }
 }
@@ -247,8 +248,10 @@ struct ProfileEditor: View {
                 if profile.fileFormat == .pdf {
                     Toggle("Make PDF searchable (recognize text)", isOn: $profile.searchablePDF)
                 }
-                Picker("Compression", selection: $profile.compression) {
-                    ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
+                if profile.fileFormat != .multiPageTIFF {
+                    Picker("Compression", selection: $profile.compression) {
+                        ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
                 }
                 Picker("File name", selection: $profile.fileNaming) {
                     ForEach(ScanProfile.FileNaming.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -289,11 +292,12 @@ struct ProfileEditor: View {
         switch profile.fileNaming {
         case .dateTime:
             formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-            return formatter.string(from: Date()) + (profile.fileFormat == .pdf ? ".pdf" : "_001.jpg")
+            return formatter.string(from: Date())
+                + (profile.fileFormat == .jpeg ? "_001" : "") + "." + profile.fileFormat.fileExtension
         case .prefixAndNumber:
             let number = String(format: "%0\(profile.numberDigits)d", profile.nextNumber)
             let prefix = profile.filePrefix.trimmingCharacters(in: .whitespaces)
-            return (prefix.isEmpty ? number : "\(prefix) \(number)") + (profile.fileFormat == .pdf ? ".pdf" : ".jpg")
+            return (prefix.isEmpty ? number : "\(prefix) \(number)") + "." + profile.fileFormat.fileExtension
         }
     }
 
