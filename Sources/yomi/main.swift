@@ -122,6 +122,33 @@ if command == "process" {
     exit(0)
 }
 
+/// `yomi scan --photo`: processes and saves each sheet the way the app does for `profile`.
+func scanPhotos(_ engine: ScanEngine, profile: ScanProfile, keepRaw: Bool) throws {
+    let correction = ColorCorrection.forBatch(profile)
+    if let line = correction.logLine { print("  \(line)") }
+    let start = Date()
+    var processed: [ProcessedPage] = []
+    let sheets = try engine.scanBatch { front, back in
+        if keepRaw {
+            for page in [front, back] {
+                let url = profile.folderURL.appendingPathComponent(
+                    String(format: "sheet%02d-%@.png", page.sheetIndex + 1, page.side.rawValue))
+                try ImageWriter.write(try page.cgImage(), to: url, resolution: page.resolution)
+            }
+        }
+        let sheet = try SheetProcessor.process(front: front, back: back, profile: profile,
+                                               colorProfile: correction.colorSpace)
+        sheet.notes.forEach { print("  sheet \(front.sheetIndex + 1) \($0)") }
+        print("  sheet \(front.sheetIndex + 1): \(sheet.pages.count) page(s), \(sheet.blankSides) blank side(s) skipped")
+        processed += sheet.pages
+    }
+    let files = try DocumentWriter.save(processed, profile: profile)
+    print(String(format: "Scanned %d sheet(s), %d page(s) in %.1f s → %@", sheets, processed.count,
+                 Date().timeIntervalSince(start), profile.folderPath))
+    files.forEach { print("  \($0.lastPathComponent)") }
+    if let warning = correction.warning { print(warning) }
+}
+
 do {
     let scanner = try openScanner()
     switch command {
@@ -167,8 +194,14 @@ do {
         }
 
     case "scan":
-        let dpi = arguments.compactMap(Int.init).first ?? 300
+        let photo = arguments.contains("--photo")
+        let dpi = arguments.compactMap(Int.init).first ?? (photo ? 600 : 300)
         let folder = URL(fileURLWithPath: arguments.first { $0.hasPrefix("/") } ?? "/tmp/yomi")
+        let photoProfile = photo ? ScanProfile.commandLinePhoto(dpi: dpi, folder: folder) : nil
+        if photo, photoProfile == nil {
+            print("--photo scans at 150, 200, 300 or 600 dpi")
+            exit(1)
+        }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         if let firmware = Firmware.locate(for: scanner.model),
            try scanner.hardwareInfo().firmwareRevision != firmware.version {
@@ -193,8 +226,12 @@ do {
         }
         let engine = try ScanEngine(device: scanner, dpi: dpi)
         engine.log = { print("  \($0)") }
-        let start = Date()
         let keepRaw = arguments.contains("--raw")
+        if let photoProfile {
+            try scanPhotos(engine, profile: photoProfile, keepRaw: keepRaw)
+            break
+        }
+        let start = Date()
         var processed: [ProcessedPage] = []
         let sheets = try engine.scanBatch { front, back in
             for page in [front, back] {
@@ -283,7 +320,7 @@ do {
         print("no wake method worked")
 
     default:
-        print("usage: yomi [info|firmware [file.nal] [--force]|watch|scan [dpi] [/output/folder]] [-v]")
+        print("usage: yomi [info|firmware [file.nal] [--force]|watch|scan [dpi] [/output/folder] [--photo]] [-v]")
     }
 } catch {
     print("error: \(error)")

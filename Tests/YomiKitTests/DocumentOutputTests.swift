@@ -46,9 +46,17 @@ struct DocumentOutputTests {
         "Photos": "882x1182 600dpi color d06b06c27798178cca35cc2f05dfb181910f0db109cc25df1487cf2b580ea79a",
     ]
 
-    @Test(arguments: ScanProfile.defaults.map(\.name))
+    /// The built-in document scan profiles, and the "Photos" scan profile that installs from
+    /// before the photo scan profiles keep.
+    static let profiles = ScanProfile.defaults.filter { !ScanProfile.builtInPhotoIDs.contains($0.id) } + [
+        ScanProfile(name: "Photos", quality: .excellent, colorMode: .color, sides: .simplex,
+                    skipBlankPages: false, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg,
+                    searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage),
+    ]
+
+    @Test(arguments: profiles.map(\.name))
     func builtInProfileOutputIsUnchanged(name: String) throws {
-        let profile = try #require(ScanProfile.defaults.first { $0.name == name })
+        let profile = try #require(Self.profiles.first { $0.name == name })
         let page = try PageProcessor.process(Self.syntheticPage(), options: profile.processingOptions)
         let fingerprint = try Self.fingerprint(page)
         #expect(fingerprint == Self.expected[name])
