@@ -4,7 +4,7 @@ Read this before changing anything in this repository.
 
 ## Project
 
-A Swift package (macOS 26, Swift 6 toolchain) that drives the ScanSnap S1300 and S1300i
+A Swift package (macOS 27, Swift 6 toolchain) that drives the ScanSnap S1300 and S1300i
 scanners over USB from user space. `Sources/YomiKit` holds the USB transport,
 command protocol, calibration, image processing, and PDF output. `Sources/YomiApp`
 is the menu-bar app and `Sources/yomi` is a command-line tool. Tests live in
