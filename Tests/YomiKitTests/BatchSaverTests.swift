@@ -119,6 +119,21 @@ struct BatchSaverTests {
         #expect(saved.warning?.contains("The album “Family” couldn't be created.") == true)
     }
 
+    @Test func photosOnlyWhenTheFolderCannotBeWrittenEitherSaysWhereTheBatchIs() throws {
+        var profile = try Self.profile(.photos)
+        let blocker = FileManager.default.temporaryDirectory.appendingPathComponent("YomiBatchSaverTests-\(UUID())")
+        try Data().write(to: blocker)
+        profile.folderPath = blocker.appendingPathComponent("Scans").path
+        let saved = try Self.save(profile, library: FakePhotoLibrary(failingWith: .accessDenied))
+        let staging = try #require(saved.files.first?.deletingLastPathComponent())
+        #expect(saved.files.map(\.lastPathComponent) == Self.names)
+        #expect(saved.files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+        #expect(staging.standardizedFileURL.path.hasPrefix(FileManager.default.temporaryDirectory.standardizedFileURL.path))
+        #expect(saved.place == staging.path)
+        #expect(saved.warning?.contains("Couldn't save to Scans either") == true, "\(saved.warning ?? "")")
+        #expect(saved.warning?.contains(staging.path) == true, "\(saved.warning ?? "")")
+    }
+
     @Test func folderOnlyNeverUsesPhotos() throws {
         let profile = try Self.profile(.folder, album: "Family")
         let library = FakePhotoLibrary()

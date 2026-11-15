@@ -72,9 +72,17 @@ public enum BatchSaver {
         staged.subfolderPattern = []
         let saved = try DocumentWriter.saveFiles(pages, profile: staged, date: date, progress: progress)
         if let error = addToPhotos(saved, profile: profile, library: photoLibrary) {
-            return try SavedBatch(files: move(saved, from: staging, into: profile, date: date),
-                                  warning: "Couldn't save to Photos: \(error) Saved to \(folder) instead.",
-                                  place: folder)
+            let reason = "Couldn't save to Photos: \(error)"
+            do {
+                let files = try copy(saved, into: profile, date: date)
+                try? FileManager.default.removeItem(at: staging)
+                return SavedBatch(files: files, warning: "\(reason) Saved to \(folder) instead.", place: folder)
+            } catch {
+                return SavedBatch(files: saved.map(\.url),
+                                  warning: "\(reason) Couldn't save to \(folder) either (\(error.localizedDescription)). "
+                                      + "The batch is in \(staging.path), which macOS empties after a few days.",
+                                  place: staging.path)
+            }
         }
         try? FileManager.default.removeItem(at: staging)
         return SavedBatch(files: [], warning: nil, place: photosPlace(profile))
@@ -95,26 +103,31 @@ public enum BatchSaver {
         }
     }
 
-    /// Moves staged files, and their `_original` copies, into the folder the scan profile saves in, numbering any
-    /// that clash.
-    private static func move(_ files: [DocumentWriter.SavedFile], from staging: URL, into profile: ScanProfile,
-                             date: Date) throws -> [URL] {
+    /// Copies staged files, and their `_original` copies, into the folder the scan profile saves in, numbering any
+    /// that clash. When a copy fails, the copies already made are removed and the staged files are left alone.
+    private static func copy(_ files: [DocumentWriter.SavedFile], into profile: ScanProfile, date: Date) throws -> [URL] {
+        let fm = FileManager.default
         let folder = DocumentWriter.saveFolder(profile, date: date)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let moved = try files.map { file in
-            let url = DocumentWriter.uniqueURL(in: folder, base: file.url.deletingPathExtension().lastPathComponent,
-                                               ext: file.url.pathExtension)
-            try FileManager.default.moveItem(at: file.url, to: url)
-            if let original = file.original {
-                let base = url.deletingPathExtension().lastPathComponent + "_original"
-                try FileManager.default.moveItem(at: original,
-                                                 to: DocumentWriter.uniqueURL(in: folder, base: base,
-                                                                              ext: original.pathExtension))
+        var copied: [URL] = []
+        do {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            return try files.map { file in
+                let url = DocumentWriter.uniqueURL(in: folder, base: file.url.deletingPathExtension().lastPathComponent,
+                                                   ext: file.url.pathExtension)
+                try fm.copyItem(at: file.url, to: url)
+                copied.append(url)
+                if let original = file.original {
+                    let base = url.deletingPathExtension().lastPathComponent + "_original"
+                    let originalURL = DocumentWriter.uniqueURL(in: folder, base: base, ext: original.pathExtension)
+                    try fm.copyItem(at: original, to: originalURL)
+                    copied.append(originalURL)
+                }
+                return url
             }
-            return url
+        } catch {
+            copied.forEach { try? fm.removeItem(at: $0) }
+            throw error
         }
-        try? FileManager.default.removeItem(at: staging)
-        return moved
     }
 
     private static func photosPlace(_ profile: ScanProfile) -> String {
