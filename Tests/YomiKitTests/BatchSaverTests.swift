@@ -74,6 +74,11 @@ struct BatchSaverTests {
         try BatchSaver.save([page(), page()], profile: profile, photoLibrary: library, date: date)
     }
 
+    /// `save` for scan profiles with auto-enhance on, whose Core Image auto-adjustments call Vision.
+    private static func saveEnhanced(_ profile: ScanProfile, library: FakePhotoLibrary) async throws -> SavedBatch {
+        try await offTheTaskPool { try save(profile, library: library) }
+    }
+
     private static func folderContents(_ profile: ScanProfile) -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: profile.folderPath)) ?? []).sorted()
     }
@@ -147,10 +152,10 @@ struct BatchSaverTests {
             + "Saved to \(profile.folderURL.lastPathComponent) only.")
     }
 
-    @Test func photosOnlyWithAutoEnhanceAddsEachUntouchedScanWithTheEnhancementAsItsEdit() throws {
+    @Test func photosOnlyWithAutoEnhanceAddsEachUntouchedScanWithTheEnhancementAsItsEdit() async throws {
         let profile = try Self.profile(.photos, autoEnhance: true)
         let library = FakePhotoLibrary()
-        let saved = try Self.save(profile, library: library)
+        let saved = try await Self.saveEnhanced(profile, library: library)
         let photos = try #require(library.added.first?.photos)
         #expect(library.added.count == 1)
         #expect(photos.map(\.name) == Self.names)
@@ -161,9 +166,9 @@ struct BatchSaverTests {
         #expect(Self.folderContents(profile).isEmpty)
     }
 
-    @Test func photosOnlyWithAutoEnhanceWhenPhotosFailsKeepsEachEnhancedPhotoAndItsOriginalInTheFolder() throws {
+    @Test func photosOnlyWithAutoEnhanceWhenPhotosFailsKeepsEachEnhancedPhotoAndItsOriginalInTheFolder() async throws {
         let profile = try Self.profile(.photos, autoEnhance: true)
-        let saved = try Self.save(profile, library: FakePhotoLibrary(failingWith: .accessDenied))
+        let saved = try await Self.saveEnhanced(profile, library: FakePhotoLibrary(failingWith: .accessDenied))
         #expect(Self.folderContents(profile) == [
             "2026-11-14 21.42.05_001.jpg", "2026-11-14 21.42.05_001_original.jpg",
             "2026-11-14 21.42.05_002.jpg", "2026-11-14 21.42.05_002_original.jpg",
@@ -175,10 +180,10 @@ struct BatchSaverTests {
         #expect(try originals == Self.unenhancedData())
     }
 
-    @Test func folderAndPhotosWithAutoEnhanceKeepsBothFilesAndAddsOnePhotoPerPrint() throws {
+    @Test func folderAndPhotosWithAutoEnhanceKeepsBothFilesAndAddsOnePhotoPerPrint() async throws {
         let profile = try Self.profile(.folderAndPhotos, autoEnhance: true)
         let library = FakePhotoLibrary()
-        let saved = try Self.save(profile, library: library)
+        let saved = try await Self.saveEnhanced(profile, library: library)
         let photos = try #require(library.added.first?.photos)
         #expect(library.added.count == 1)
         #expect(photos.map(\.name) == Self.names)
