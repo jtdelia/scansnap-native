@@ -17,8 +17,8 @@ is no kernel extension, no DriverKit extension, and no admin install.
 
 ## Requirements
 
-- macOS 26 or later on Apple Silicon
-- Xcode 26 or later (Swift 6 toolchain)
+- macOS 27 or later on Apple Silicon
+- Xcode 27 or later (Swift 6 toolchain)
 - A ScanSnap S1300 or S1300i
 - The scanner's firmware file, from your own copy of ScanSnap Manager (see below)
 

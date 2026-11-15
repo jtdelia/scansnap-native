@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Yomi",
-    platforms: [.macOS("26.0")],
+    platforms: [.macOS("27.0")],
     products: [
         .library(name: "YomiKit", targets: ["YomiKit"]),
         .executable(name: "yomi", targets: ["yomi"]),
