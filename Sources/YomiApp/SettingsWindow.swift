@@ -386,6 +386,7 @@ struct ProfileEditor: View {
 
             Section("Photos") {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
+                Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
             }
         }
         .formStyle(.grouped)
