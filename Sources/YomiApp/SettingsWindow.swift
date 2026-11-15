@@ -132,7 +132,7 @@ private extension ScanProfile {
         if correctColor { return "photo" }
         return switch fileFormat {
         case .pdf: "doc.richtext"
-        case .jpeg: "photo"
+        case .jpeg, .png, .tiff, .heic: "photo"
         case .multiPageTIFF: "doc.on.doc"
         }
     }
@@ -321,7 +321,7 @@ struct ProfileEditor: View {
                 if profile.fileFormat == .pdf {
                     Toggle("Make PDF searchable (recognize text)", isOn: $profile.searchablePDF)
                 }
-                if profile.fileFormat != .jpeg {
+                if !profile.fileFormat.savesPagesSeparately {
                     Toggle("Split into several files", isOn: Binding(
                         get: { profile.pagesPerFile != nil },
                         set: { profile.pagesPerFile = $0 ? 1 : nil }))
@@ -331,7 +331,7 @@ struct ProfileEditor: View {
                                 in: 1...999)
                     }
                 }
-                if profile.fileFormat != .multiPageTIFF {
+                if profile.fileFormat.usesCompression {
                     Picker("Compression", selection: $profile.compression) {
                         ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
