@@ -18,14 +18,17 @@ Issue IDs look like `yomi-a3f2dd`.
 
 The database itself is gitignored. Two things carry issues between machines:
 
-- `export.auto` is on, so `bd` writes `.beads/issues.jsonl` after writes. Commit it with the change it belongs to.
-- `sync.remote` points at this GitHub repo. `bd sync` pulls and pushes the Dolt database there.
+- `sync.remote` and the Dolt remote `origin` point at this GitHub repo. `bd sync` pulls, checks for conflicts, and pushes the Dolt database there (`bd dolt pull` / `bd dolt push` do one direction).
+- `export.auto` is on, so `bd` writes `.beads/issues.jsonl` after writes. Commit it with the change it belongs to. It is an export, not the source of truth.
 
-On a fresh clone, run `bd bootstrap` to rebuild the local database.
+On a fresh clone, run `bd bootstrap` (tested with `bd` 1.3.4). It clones from the Dolt remote when GitHub has Dolt data, and otherwise imports `.beads/issues.jsonl`.
 
-## Pull requests
+## Which tracker owns the work
 
-Beads issues are not closed by merging a pull request. Put the bead ID in the PR body (in place of `Closes #<number>`), and run `bd close <id>` once the PR merges. GitHub issues and the `agent-ready` workflow keep working as before; beads is where agents track work.
+Beads is where the engineering skills create and triage issues. GitHub issues stay in use for the `agent-ready` workflow (`.github/workflows/agent-task.yml`) and for bug reports and feature requests filed through the issue templates.
+
+- **PR for a GitHub issue**: link it with `Closes #<number>`, as `AGENTS.md` says.
+- **PR for a bead**: merging does not close it. Put the bead ID in the PR body, and run `bd close <id>` once the PR merges.
 
 ## When a skill says "publish to the issue tracker"
 

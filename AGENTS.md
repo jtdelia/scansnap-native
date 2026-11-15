@@ -65,7 +65,8 @@ This repository starts as a template. It is unconfigured while a `make` target p
   `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`, or `revert`.
 - Fill in every section of `.github/pull_request_template.md`. Under Verification, list
   the commands you ran and what they showed. "Tests pass" alone is not enough.
-- Link the issue with `Closes #<number>`.
+- Link the issue with `Closes #<number>` for a GitHub issue. For a bead, name its ID
+  instead and close it after merge (see `docs/agents/issue-tracker.md`).
 
 ## Agent skills
 

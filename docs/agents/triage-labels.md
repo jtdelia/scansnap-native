@@ -12,4 +12,6 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
+The same five labels exist on GitHub. There, `ready-for-agent` only records the triage state: adding `agent-ready` is what starts the agent workflow (`.github/workflows/agent-task.yml`).
+
 Edit the "Label in our tracker" column to match whatever vocabulary you actually use.
