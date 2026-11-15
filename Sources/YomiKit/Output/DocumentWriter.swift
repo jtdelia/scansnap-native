@@ -33,6 +33,13 @@ public enum DocumentWriter {
                 urls.append(url)
             }
             return urls
+        case .multiPageTIFF:
+            let url = uniqueURL(in: folder, base: baseName(profile, date: date, number: profile.nextNumber),
+                                ext: profile.fileFormat.fileExtension)
+            try TIFFWriter.write(pages, to: url) { index in
+                progress?("Saving page \(index + 1) of \(pages.count)…")
+            }
+            return [url]
         }
     }
 
@@ -51,6 +58,8 @@ public enum DocumentWriter {
                 ? baseName(profile, date: date, number: 0) + "_001"
                 : baseName(profile, date: date, number: profile.nextNumber)
             return base + ".jpg"
+        case .multiPageTIFF:
+            return baseName(profile, date: date, number: profile.nextNumber) + "." + profile.fileFormat.fileExtension
         }
     }
 

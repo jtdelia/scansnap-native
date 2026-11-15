@@ -16,6 +16,11 @@ struct DocumentWriterTests {
         #expect(DocumentWriter.exampleFileName(for: profile, date: date) == "2026-11-14 21.42.05_001.jpg")
     }
 
+    @Test func exampleForDateAndTimeMultiPageTIFFIsOneFile() {
+        let profile = ScanProfile(name: "Docs", fileFormat: .multiPageTIFF, fileNaming: .dateTime)
+        #expect(DocumentWriter.exampleFileName(for: profile, date: date) == "2026-11-14 21.42.05.tiff")
+    }
+
     @Test func exampleForNameAndNumberUsesNextNumberAndDigits() {
         let profile = ScanProfile(name: "Receipts", fileFormat: .pdf, fileNaming: .prefixAndNumber,
                                   filePrefix: "Receipt", nextNumber: 7, numberDigits: 4)

@@ -132,6 +132,7 @@ private extension ScanProfile {
         switch fileFormat {
         case .pdf: "doc.richtext"
         case .jpeg: "photo"
+        case .multiPageTIFF: "doc.on.doc"
         }
     }
 }
@@ -270,8 +271,10 @@ struct ProfileEditor: View {
                 if profile.fileFormat == .pdf {
                     Toggle("Make PDF searchable (recognize text)", isOn: $profile.searchablePDF)
                 }
-                Picker("Compression", selection: $profile.compression) {
-                    ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
+                if profile.fileFormat != .multiPageTIFF {
+                    Picker("Compression", selection: $profile.compression) {
+                        ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
                 }
                 Picker("File name", selection: $profile.fileNaming) {
                     ForEach(ScanProfile.FileNaming.allCases, id: \.self) { Text($0.title).tag($0) }
