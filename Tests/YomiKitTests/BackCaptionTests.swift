@@ -250,6 +250,34 @@ struct BackCaptionTests {
         #expect(sheet.blankSides == 0)
     }
 
+    // MARK: Recognized lines
+
+    @Test(arguments: [
+        ["ORDER 0423 FRAME 17"], ["NNN 12 +1"], ["ROLL 4 NEG 12"], ["Lab 2 PRINT 3"], ["PROCESS C41 KX"], ["NNN"],
+    ])
+    func labPrintingIsNotACaption(lines: [String]) {
+        #expect(BackCaptionReader.handwrittenLines(lines) == [])
+    }
+
+    @Test func handwritingNextToLabPrintingIsKept() {
+        let lines = ["MOM AND DAD", "Max the lab puppy", "JULY 4, 1962", "ORDER 0423 FRAME 17"]
+        #expect(BackCaptionReader.handwrittenLines(lines) == ["MOM AND DAD", "Max the lab puppy", "JULY 4, 1962"])
+    }
+
+    @Test(arguments: [["KODAK ROYAL PAPER"], ["FUJICOLOR CRYSTAL ARCHIVE PAPER"], ["Kodak Royal Paper", "Kodak"]])
+    func brandPhrasePrintedOnceIsNotACaption(lines: [String]) {
+        #expect(BackCaptionReader.handwrittenLines(lines) == [])
+    }
+
+    @Test func handwrittenWordsThatPaperMakersAlsoUseAreKept() {
+        let lines = ["Crystal", "Royal Albert Hall", "our archive paper", "KODAK ROYAL PAPER"]
+        #expect(BackCaptionReader.handwrittenLines(lines) == ["Crystal", "Royal Albert Hall", "our archive paper"])
+    }
+
+    @Test func brandPhraseIsTakenOutOfHandwritingItCrosses() {
+        #expect(BackCaptionReader.handwrittenLines(["at Lake Tahoe KODAK ROYAL PAPER"]) == ["at Lake Tahoe"])
+    }
+
     @Test(arguments: [("blank", []), ("brand printing", brandPrinting), ("lab printing", labPrinting)])
     func printingCountsAsBlank(_ name: String, printing: [Side.Text]) async throws {
         let sheet = try await Self.process(front: Self.picture, back: Side(text: printing))

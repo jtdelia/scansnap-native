@@ -21,25 +21,52 @@ enum BackCaptionReader {
         return lines.isEmpty ? .blank : .caption(lines.joined(separator: "\n"))
     }
 
-    /// The lines left after dropping brand and lab printing. A line is kept when it is a date on its own or
-    /// has a word of three or more letters that is not brand printing: brand printing repeats across the
-    /// back, as a maker's name printed all over the paper does, or is a word photo paper makers print. Lab
-    /// printing (order, frame and correction numbers, lab codes) has no such word. Where handwriting
-    /// crosses brand printing and both are read as one line, the brand words are taken out of it.
+    /// The lines left after dropping brand and lab printing. Brand printing is a paper maker's name, a whole
+    /// brand phrase such as "Kodak Royal Paper", or a word that repeats across the back, as a maker's name
+    /// printed all over the paper does. Lab printing is upper-case codes, digits and symbols (order, frame and
+    /// correction numbers, lab codes) and words labs print, such as "order" and "frame". A line is kept when
+    /// it is a date on its own or has a word that is neither. Where handwriting crosses brand printing and
+    /// both are read as one line, the brand printing is taken out of it.
     static func handwrittenLines(_ lines: [String]) -> [String] {
         let counts = lines.flatMap(words).reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
-        let brand = paperMakerWords.union(counts.filter { $0.value >= 3 }.keys)
-        let isPrinting = { (line: String) in
-            !isDate(line) && !words(line).contains { isWord($0) && !matches($0, brand) }
+        let brand = paperMakerNames.union(counts.filter { $0.value >= 3 }.keys)
+        return lines.compactMap { line in
+            guard !isDate(line) else { return line }
+            let tokens = line.split(separator: " ").map(String.init)
+            let kept = zip(tokens, brandPrinting(tokens, brand: brand)).filter { !$0.1 }.map(\.0)
+            guard kept.contains(where: { !isCode($0) && !isLabWord($0) }) else { return nil }
+            return kept.joined(separator: " ")
         }
-        let printedWords = paperMakerWords.union(lines.filter(isPrinting).flatMap(words).filter(isWord))
-        return lines.filter { !isPrinting($0) }.compactMap { line in
-            let kept = line.split(separator: " ").filter { token in
-                let word = words(String(token)).joined()
-                return !(isWord(word) && matches(word, printedWords))
+    }
+
+    /// For each token, whether it is a paper maker's name, a word repeated across the back, or part of a
+    /// brand phrase.
+    private static func brandPrinting(_ tokens: [String], brand: Set<String>) -> [Bool] {
+        let tokenWords = tokens.map { words($0).joined() }
+        var marked = tokenWords.map { !$0.isEmpty && matches($0, brand) }
+        for phrase in brandPhrases where phrase.count <= tokenWords.count {
+            for start in 0...(tokenWords.count - phrase.count)
+            where zip(tokenWords[start...], phrase).allSatisfy({ matches($0, [$1]) }) {
+                marked.replaceSubrange(start..<(start + phrase.count), with: repeatElement(true, count: phrase.count))
             }
-            return kept.isEmpty ? nil : kept.joined(separator: " ")
         }
+        return marked
+    }
+
+    /// A token that cannot be a handwritten word: it has digits or symbols, fewer than three letters, or, in
+    /// Latin letters, no vowel or one letter repeated, as lab codes such as `NNN` and `KX` do.
+    private static func isCode(_ token: String) -> Bool {
+        let core = token.trimmingCharacters(in: .punctuationCharacters)
+        guard core.allSatisfy({ $0.isLetter || "'’-".contains($0) }) else { return true }
+        let letters = core.filter(\.isLetter).lowercased()
+        guard letters.count >= 3 else { return true }
+        guard letters.allSatisfy(\.isASCII) else { return false }
+        return !letters.contains(where: "aeiouy".contains) || Set(letters).count == 1
+    }
+
+    private static func isLabWord(_ token: String) -> Bool {
+        let word = words(token).joined()
+        return labWords.contains(word) || word.hasSuffix("s") && labWords.contains(String(word.dropLast()))
     }
 
     /// A year from 1850 to 2099, or a day, month and year written with `/`, `.` or `-`.
@@ -47,10 +74,6 @@ enum BackCaptionReader {
         let line = line.trimmingCharacters(in: .whitespaces)
         return line.wholeMatch(of: #/(18[5-9]\d|19\d\d|20\d\d)/#) != nil
             || line.wholeMatch(of: #/\d{1,2}[\/.\-]\d{1,2}[\/.\-](\d{2}|\d{4})/#) != nil
-    }
-
-    private static func isWord(_ word: String) -> Bool {
-        word.count >= 3 && word.allSatisfy(\.isLetter)
     }
 
     /// Whether `word` is one of `vocabulary`, allowing one misread letter in longer words.
@@ -68,10 +91,18 @@ enum BackCaptionReader {
         return a.count > b.count ? a[(first + 1)...] == b[first...] : a[first...] == b[(first + 1)...]
     }
 
-    private static let paperMakerWords: Set<String> = [
-        "kodak", "kodacolor", "ektacolor", "royal", "fuji", "fujifilm", "fujicolor", "crystal", "archive", "agfa",
-        "agfacolor", "konica", "ilford", "polaroid", "paper",
+    /// Names that only paper makers print. Ordinary words they also print count only inside `brandPhrases`.
+    private static let paperMakerNames: Set<String> = [
+        "kodak", "kodacolor", "ektacolor", "fuji", "fujifilm", "fujicolor", "agfa", "agfacolor", "konica", "ilford",
+        "polaroid",
     ]
+
+    private static let brandPhrases: [[String]] = [
+        ["royal", "paper"], ["crystal", "archive", "paper"], ["crystal", "archive"], ["kodak", "paper"], ["fuji", "paper"],
+        ["fujicolor", "paper"], ["agfa", "paper"], ["konica", "paper"], ["ilford", "paper"],
+    ]
+
+    private static let labWords: Set<String> = ["order", "frame", "neg", "roll", "lab", "print", "process"]
 
     private static func words(_ line: String) -> [String] {
         line.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
