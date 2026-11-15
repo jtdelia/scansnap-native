@@ -268,6 +268,15 @@ struct AppSettingsTests {
         #expect(reloaded == settings)
     }
 
+    @Test func upgradeMarkersSurviveASave() throws {
+        let saved = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(!saved.addedPhotoProfiles && !saved.switchedPhotoProfilesToHEIC)
+        let reloaded = try AppSettings(json: saved.upgraded().json())
+        #expect(reloaded.addedPhotoProfiles)
+        #expect(reloaded.switchedPhotoProfilesToHEIC)
+        #expect(reloaded.upgraded() == reloaded)
+    }
+
     @Test func photoProfileTheUserMovedOffJPEGKeepsItsFormat() throws {
         var saved = try Self.savedWithJPEGPhotoProfiles()
         let keepers = try #require(saved.profiles.firstIndex { $0.name == "Photos – Keepers" })

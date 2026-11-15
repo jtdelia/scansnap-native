@@ -13,12 +13,24 @@ final class AppModel {
         case failed(String)
     }
 
-    var profiles: [ScanProfile] = [] { didSet { save() } }
-    var buttonProfileID: UUID? { didSet { save() } }
-    var appearance: AppSettings.Appearance = .system {
-        didSet {
-            NSApp.appearance = appearance.appKitName.flatMap(NSAppearance.init(named:))
-            save()
+    /// Everything saved in `Settings.json`, kept whole so every field, including the upgrade markers, is saved.
+    private var settings = AppSettings() { didSet { save() } }
+
+    var profiles: [ScanProfile] {
+        get { settings.profiles }
+        set { settings.profiles = newValue }
+    }
+
+    var buttonProfileID: UUID? {
+        get { settings.buttonProfileID }
+        set { settings.buttonProfileID = newValue }
+    }
+
+    var appearance: AppSettings.Appearance {
+        get { settings.appearance }
+        set {
+            settings.appearance = newValue
+            applyAppearance()
         }
     }
     var connection: ScannerConnection = .disconnected
@@ -33,8 +45,6 @@ final class AppModel {
     /// Where each scan profile's last batch was saved, while the app runs.
     private var lastFolders: [UUID: URL] = [:]
     private var loaded = false
-    private var addedPhotoProfiles = false
-    private var switchedPhotoProfilesToHEIC = false
 
     static let supportFolder = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Yomi", isDirectory: true)
@@ -187,29 +197,24 @@ final class AppModel {
     private func load() {
         if let data = try? Data(contentsOf: Self.settingsURL),
            let saved = try? AppSettings(json: data), !saved.profiles.isEmpty {
-            let settings = saved.upgraded()
-            profiles = settings.profiles
-            buttonProfileID = settings.buttonProfileID ?? settings.profiles.first?.id
-            addedPhotoProfiles = settings.addedPhotoProfiles
-            switchedPhotoProfilesToHEIC = settings.switchedPhotoProfilesToHEIC
-            appearance = settings.appearance
+            var upgraded = saved.upgraded()
+            upgraded.buttonProfileID = upgraded.buttonProfileID ?? upgraded.profiles.first?.id
+            settings = upgraded
             loaded = true
-            if settings != saved { save() }
+            if upgraded != saved { save() }
         } else {
-            let settings = AppSettings.newInstall
-            profiles = settings.profiles
-            buttonProfileID = settings.buttonProfileID
-            addedPhotoProfiles = settings.addedPhotoProfiles
-            switchedPhotoProfilesToHEIC = settings.switchedPhotoProfilesToHEIC
+            settings = .newInstall
             loaded = true
         }
+        applyAppearance()
+    }
+
+    private func applyAppearance() {
+        NSApp.appearance = appearance.appKitName.flatMap(NSAppearance.init(named:))
     }
 
     private func save() {
         guard loaded else { return }
-        let settings = AppSettings(profiles: profiles, buttonProfileID: buttonProfileID,
-                                   addedPhotoProfiles: addedPhotoProfiles,
-                                   switchedPhotoProfilesToHEIC: switchedPhotoProfilesToHEIC, appearance: appearance)
         do {
             try FileManager.default.createDirectory(at: Self.supportFolder, withIntermediateDirectories: true)
             try settings.json().write(to: Self.settingsURL, options: .atomic)
