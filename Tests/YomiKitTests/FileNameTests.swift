@@ -213,6 +213,71 @@ struct FileNameTests {
         #expect(try AppSettings(json: settings.json()).profiles.first?.namePattern == pattern)
     }
 
+    // MARK: Subfolders
+
+    /// Saves `pages` blank pages into a fresh scan profile folder and returns each file's path inside it.
+    private static func savedPaths(_ pages: Int, _ profile: ScanProfile) throws -> [String] {
+        let folder = try temporaryFolder().resolvingSymlinksInPath()
+        var profile = profile
+        profile.folderPath = folder.path
+        profile.searchablePDF = false
+        let urls = try DocumentWriter.save(Array(repeating: page(), count: pages), profile: profile, date: date)
+        return urls.map { url in
+            let path = url.resolvingSymlinksInPath().path
+            return path.hasPrefix(folder.path + "/") ? String(path.dropFirst(folder.path.count + 1)) : path
+        }
+    }
+
+    @Test func subfoldersNestAndAreCreated() throws {
+        let pdf = ScanProfile(name: "Bank", subfolderPattern: [.year, .text("/"), .month])
+        #expect(try Self.savedPaths(2, pdf) == ["2026/11/2026-11-14 21.42.05.pdf"])
+        var jpeg = pdf
+        jpeg.fileFormat = .jpeg
+        #expect(try Self.savedPaths(2, jpeg) == ["2026/11/2026-11-14 21.42.05_001.jpg",
+                                                 "2026/11/2026-11-14 21.42.05_002.jpg"])
+    }
+
+    @Test(arguments: [
+        ([.text("..")], "2026-11-14 21.42.05.pdf"),
+        ([.text("../../escape")], "escape/2026-11-14 21.42.05.pdf"),
+        ([.text("/tmp/"), .year], "tmp/2026/2026-11-14 21.42.05.pdf"),
+        ([.text("a/./../b/..")], "a/b/2026-11-14 21.42.05.pdf"),
+        ([.text(" .. / . /")], "2026-11-14 21.42.05.pdf"),
+        ([.year, .text("//"), .profileName, .text("/ /"), .month], "2026/11/2026-11-14 21.42.05.pdf"),
+    ] as [(FileNamePattern, String)])
+    func subfoldersStayInsideTheFolder(pattern: FileNamePattern, path: String) throws {
+        #expect(try Self.savedPaths(1, ScanProfile(name: "  ", subfolderPattern: pattern)) == [path])
+    }
+
+    @Test func profileNameIsOneFolderLevel() throws {
+        let profile = ScanProfile(name: "../Bills 1/2: Gas", namePattern: .dateAndTime, subfolderPattern: [.profileName])
+        #expect(try Self.savedPaths(1, profile) == ["..-Bills 1-2- Gas/2026-11-14 21.42.05.pdf"])
+    }
+
+    @Test func subfoldersUseOnlyBatchWidePieces() throws {
+        #expect(FileNamePattern.Piece.batchWide == [.date, .year, .month, .day, .profileName])
+        let profile = ScanProfile(name: "Bank", fileFormat: .jpeg, namePattern: [.runningNumber],
+                                  subfolderPattern: [.text("n"), .runningNumber, .text("/p"), .pageNumber, .time,
+                                                     .text("/"), .date])
+        #expect(try Self.savedPaths(2, profile) == ["n/p/2026-11-14/001.jpg", "n/p/2026-11-14/002.jpg"])
+    }
+
+    @Test func subfoldersAreOffByDefault() throws {
+        #expect(ScanProfile(name: "A").subfolderPattern == [])
+        let upgraded = try Self.v1Profile(named: "Scan to Yomi Folder")
+        #expect(upgraded.subfolderPattern == [])
+        #expect(try Self.savedPaths(1, upgraded) == ["2026-11-14 21.42.05.pdf"])
+        let pattern: FileNamePattern = [.text("Scans/"), .year, .text("/"), .profileName]
+        let settings = AppSettings(profiles: [ScanProfile(name: "A", subfolderPattern: pattern)])
+        #expect(try AppSettings(json: settings.json()).profiles.first?.subfolderPattern == pattern)
+    }
+
+    @Test func exampleSubfolder() {
+        let profile = ScanProfile(name: "Bank", subfolderPattern: [.text("../"), .profileName, .text("/"), .year])
+        #expect(DocumentWriter.exampleSubfolder(for: profile, date: Self.date) == "Bank/2026")
+        #expect(DocumentWriter.exampleSubfolder(for: ScanProfile(name: "Bank"), date: Self.date) == "")
+    }
+
     @Test func editorText() {
         let pattern: FileNamePattern = [.text("Scan "), .profileName, .text(" "), .runningNumber]
         #expect(pattern.editorText == "Scan {profile} {number}")

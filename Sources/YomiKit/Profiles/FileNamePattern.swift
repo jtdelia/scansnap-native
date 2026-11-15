@@ -18,6 +18,10 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
         /// Pieces other than typed text, in the order the editor offers them.
         public static let all: [Piece] = [.date, .time, .year, .month, .day, .profileName, .runningNumber, .pageNumber]
 
+        /// Pieces a subfolder pattern offers: the same for every file in a batch, so a batch never spreads
+        /// across folders.
+        public static let batchWide: [Piece] = [.date, .year, .month, .day, .profileName]
+
         public var title: String {
             switch self {
             case let .text(text): text

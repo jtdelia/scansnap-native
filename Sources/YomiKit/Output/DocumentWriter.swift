@@ -7,7 +7,7 @@ public enum DocumentWriter {
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, date: Date = Date(),
                             progress: ((String) -> Void)? = nil) throws -> [URL] {
         guard !pages.isEmpty else { return [] }
-        let folder = profile.folderURL
+        let folder = saveFolder(profile, date: date)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let starts = firstPages(pages: pages.count, profile: profile)
         let names = baseNames(profile, firstPages: starts, date: date)
@@ -70,6 +70,29 @@ public enum DocumentWriter {
             guard let pagesPerFile = profile.pagesPerFile, pagesPerFile > 0 else { return [1] }
             return Array(stride(from: 1, through: pages, by: pagesPerFile))
         }
+    }
+
+    /// The subfolders, separated by `/`, a batch scanned at `date` would be saved in. Empty when there are none.
+    public static func exampleSubfolder(for profile: ScanProfile, date: Date = Date()) -> String {
+        subfolders(profile, date: date).joined(separator: "/")
+    }
+
+    /// The folder a batch scanned at `date` is saved in.
+    static func saveFolder(_ profile: ScanProfile, date: Date) -> URL {
+        subfolders(profile, date: date).reduce(profile.folderURL) { $0.appendingPathComponent($1, isDirectory: true) }
+    }
+
+    /// Folder levels from the subfolder pattern. Only typed `/` starts a new level, and levels that are empty,
+    /// `.` or `..` are left out, so the levels always stay inside the scan profile's folder.
+    private static func subfolders(_ profile: ScanProfile, date: Date) -> [String] {
+        let values = FileNamePattern.Values(date: date, profileName: fileSafe(profile.name), runningNumber: 0,
+                                            numberDigits: 0, pageNumber: 0)
+        let pattern = FileNamePattern(profile.subfolderPattern.pieces.filter { piece in
+            if case .text = piece { true } else { FileNamePattern.Piece.batchWide.contains(piece) }
+        })
+        return pattern.render(values).split(separator: "/")
+            .map { fileSafe(String($0)) }
+            .filter { !["", ".", ".."].contains($0) }
     }
 
     /// Names, without extension or clash number, for files starting at `firstPages`.
