@@ -9,10 +9,11 @@ public enum DocumentWriter {
         guard !pages.isEmpty else { return [] }
         let folder = profile.folderURL
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let names = baseNames(profile, firstPages: firstPages(pages: pages.count, profile: profile), date: date)
 
         switch profile.fileFormat {
         case .pdf:
-            let url = uniqueURL(in: folder, base: baseName(profile, date: date, number: profile.nextNumber), ext: "pdf")
+            let url = uniqueURL(in: folder, base: names[0], ext: "pdf")
             try PDFWriter.write(pages, to: url, jpegQuality: profile.compression.jpegQuality,
                                 searchable: profile.searchablePDF) { index in
                 progress?(profile.searchablePDF
@@ -24,10 +25,7 @@ public enum DocumentWriter {
             var urls: [URL] = []
             for (index, page) in pages.enumerated() {
                 progress?("Saving page \(index + 1) of \(pages.count)…")
-                let base = profile.fileNaming == .dateTime
-                    ? baseName(profile, date: date, number: 0) + String(format: "_%03d", index + 1)
-                    : baseName(profile, date: date, number: profile.nextNumber + index)
-                let url = uniqueURL(in: folder, base: base, ext: "jpg")
+                let url = uniqueURL(in: folder, base: names[index], ext: "jpg")
                 try ImageWriter.write(page.image, to: url, type: .jpeg, resolution: page.resolution,
                                       quality: profile.compression.jpegQuality)
                 urls.append(url)
@@ -38,20 +36,55 @@ public enum DocumentWriter {
 
     /// Files consumed by a save, used to advance `nextNumber`.
     public static func numbersUsed(pages: Int, profile: ScanProfile) -> Int {
-        profile.fileFormat == .jpeg ? pages : 1
+        profile.namePattern.usesRunningNumber ? firstPages(pages: pages, profile: profile).count : 0
     }
 
-    static func baseName(_ profile: ScanProfile, date: Date, number: Int) -> String {
-        switch profile.fileNaming {
-        case .dateTime:
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-            return formatter.string(from: date)
-        case .prefixAndNumber:
-            let digits = String(format: "%0\(max(1, profile.numberDigits))d", number)
-            let prefix = profile.filePrefix.trimmingCharacters(in: .whitespaces)
-            return prefix.isEmpty ? digits : "\(prefix) \(digits)"
+    /// The name of the first file a two-page batch would get, for the live example in Settings.
+    public static func exampleFileName(_ profile: ScanProfile, date: Date = Date()) -> String {
+        let name = baseNames(profile, firstPages: firstPages(pages: 2, profile: profile), date: date)[0]
+        return "\(name).\(profile.fileFormat == .pdf ? "pdf" : "jpg")"
+    }
+
+    /// The batch's page number of the first page in each file the batch writes.
+    private static func firstPages(pages: Int, profile: ScanProfile) -> [Int] {
+        guard pages > 0 else { return [] }
+        return profile.fileFormat == .jpeg ? Array(1...pages) : [1]
+    }
+
+    /// Names, without extension or clash number, for files starting at `firstPages`.
+    static func baseNames(_ profile: ScanProfile, firstPages: [Int], date: Date) -> [String] {
+        firstPages.enumerated().map { index, page in
+            let values = FileNamePattern.Values(date: date, profileName: profile.name,
+                                                runningNumber: profile.nextNumber + index,
+                                                numberDigits: profile.numberDigits, pageNumber: page)
+            var pattern = profile.namePattern
+            var name = fileSafe(pattern.render(values))
+            if name.isEmpty {
+                pattern = .dateAndTime
+                name = fileSafe(pattern.render(values))
+            }
+            if firstPages.count > 1, !pattern.numbersFiles {
+                name += String(format: "_%03d", page)
+            }
+            return name
         }
+    }
+
+    /// Longest name, in bytes as the file system stores it, leaving room under macOS's 255-byte limit
+    /// for a page number, clash number and extension.
+    private static let maxNameBytes = 200
+
+    /// Replaces the characters macOS does not allow in file names and shortens names that are too long.
+    static func fileSafe(_ name: String) -> String {
+        let name = name.replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var bytes = 0
+        let kept = name.prefix { character in
+            bytes += String(character).decomposedStringWithCanonicalMapping.utf8.count
+            return bytes <= maxNameBytes
+        }
+        return kept.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func uniqueURL(in folder: URL, base: String, ext: String) -> URL {

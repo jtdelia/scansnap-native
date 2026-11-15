@@ -93,4 +93,80 @@ struct FileNameTests {
         #expect(try Self.save(1, profile, into: folder) == ["2026-11-14 21.42.05 (2).pdf"])
         #expect(try Self.save(1, profile, into: folder) == ["2026-11-14 21.42.05 (3).pdf"])
     }
+
+    // MARK: Name patterns
+
+    @Test func patternPiecesAndText() throws {
+        var profile = ScanProfile(name: "Bank")
+        profile.namePattern = [.profileName, .text(" "), .day, .text("."), .month, .text("."), .year,
+                               .text(" at "), .time, .text(" ("), .date, .text(")")]
+        #expect(try Self.save(1, profile) == ["Bank 14.11.2026 at 21.42.05 (2026-11-14).pdf"])
+    }
+
+    @Test func disallowedCharactersAreReplaced() throws {
+        let profile = ScanProfile(name: "Bills 1/2: Gas", namePattern: [.profileName, .text(" a/b:c")])
+        #expect(try Self.save(1, profile) == ["Bills 1-2- Gas a-b-c.pdf"])
+    }
+
+    @Test func emptyNameFallsBackToDateAndTime() throws {
+        #expect(try Self.save(1, ScanProfile(name: "Empty", namePattern: [])) == ["2026-11-14 21.42.05.pdf"])
+        let blank = ScanProfile(name: " ", fileFormat: .jpeg, namePattern: [.profileName, .text("  ")])
+        #expect(try Self.save(2, blank) == ["2026-11-14 21.42.05_001.jpg", "2026-11-14 21.42.05_002.jpg"])
+    }
+
+    @Test func longNamesAreShortened() throws {
+        let ascii = ScanProfile(name: "Long", namePattern: [.text(String(repeating: "a", count: 300))])
+        #expect(try Self.save(1, ascii) == [String(repeating: "a", count: 200) + ".pdf"])
+        let accented = ScanProfile(name: "Long", namePattern: [.text(String(repeating: "é", count: 300))])
+        let name = try #require(try Self.save(1, accented).first)
+        #expect(name.precomposedStringWithCanonicalMapping == String(repeating: "é", count: 66) + ".pdf")
+    }
+
+    @Test func pageSuffixOnlyWhenSeveralFilesAndNoNumber() throws {
+        let jpeg = ScanProfile(name: "Bank", fileFormat: .jpeg, namePattern: [.profileName])
+        #expect(try Self.save(1, jpeg) == ["Bank.jpg"])
+        #expect(try Self.save(2, jpeg) == ["Bank_001.jpg", "Bank_002.jpg"])
+
+        let pdf = ScanProfile(name: "Bank", namePattern: [.profileName])
+        #expect(try Self.save(3, pdf) == ["Bank.pdf"])
+
+        var numbered = jpeg
+        numbered.namePattern = [.profileName, .text(" "), .runningNumber]
+        numbered.nextNumber = 9
+        numbered.numberDigits = 2
+        #expect(try Self.save(2, numbered) == ["Bank 09.jpg", "Bank 10.jpg"])
+
+        var paged = jpeg
+        paged.namePattern = [.profileName, .text(" p"), .pageNumber]
+        #expect(try Self.save(2, paged) == ["Bank p001.jpg", "Bank p002.jpg"])
+    }
+
+    @Test func runningNumberAdvancesOnlyWhenUsed() {
+        let numbered = ScanProfile(name: "A", fileFormat: .jpeg, namePattern: .nameAndNumber("Scan"))
+        #expect(DocumentWriter.numbersUsed(pages: 3, profile: numbered) == 3)
+        #expect(DocumentWriter.numbersUsed(pages: 0, profile: numbered) == 0)
+        let dated = ScanProfile(name: "A", fileFormat: .jpeg)
+        #expect(DocumentWriter.numbersUsed(pages: 3, profile: dated) == 0)
+    }
+
+    @Test func exampleFileName() throws {
+        let profile = ScanProfile(name: "Bank", fileFormat: .jpeg, namePattern: [.profileName, .text(" "), .date])
+        #expect(DocumentWriter.exampleFileName(profile, date: Self.date) == "Bank 2026-11-14_001.jpg")
+        let upgraded = try Self.v1Profile(named: "Scan to Yomi Folder", Self.nameAndNumber)
+        #expect(DocumentWriter.exampleFileName(upgraded, date: Self.date) == "Invoice 0041.pdf")
+    }
+
+    @Test func savedPatternsRoundTrip() throws {
+        let pattern: FileNamePattern = [.text("Scan {x} "), .profileName, .runningNumber, .pageNumber, .date, .time,
+                                        .year, .month, .day]
+        let settings = AppSettings(profiles: [ScanProfile(name: "A", namePattern: pattern)])
+        #expect(try AppSettings(json: settings.json()).profiles.first?.namePattern == pattern)
+    }
+
+    @Test func editorText() {
+        let pattern: FileNamePattern = [.text("Scan "), .profileName, .text(" "), .runningNumber]
+        #expect(pattern.editorText == "Scan {profile} {number}")
+        #expect(FileNamePattern(editorText: "Scan {profile} {number}") == pattern)
+        #expect(FileNamePattern(editorText: "{year}-{month} {nope}{") == [.year, .text("-"), .month, .text(" {nope}{")])
+    }
 }

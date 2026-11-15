@@ -76,8 +76,9 @@ final class AppModel {
     private func finish(profile: ScanProfile, result: Result<ScanOutcome, Error>) {
         switch result {
         case let .success(outcome):
-            if let index = profiles.firstIndex(where: { $0.id == profile.id }), profile.fileNaming == .prefixAndNumber {
-                profiles[index].nextNumber += profile.fileFormat == .jpeg ? outcome.pages : 1
+            let numbersUsed = DocumentWriter.numbersUsed(pages: outcome.pages, profile: profile)
+            if let index = profiles.firstIndex(where: { $0.id == profile.id }), numbersUsed > 0 {
+                profiles[index].nextNumber += numbersUsed
             }
             let skipped = outcome.blankPagesSkipped > 0 ? ", \(outcome.blankPagesSkipped) blank skipped" : ""
             if let warning = outcome.warning {

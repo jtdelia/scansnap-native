@@ -17,7 +17,7 @@ struct AppSettingsTests {
         ScanProfile(id: UUID(uuidString: "9EBC7318-4319-4F8D-AF94-FB8D73341AB4")!, name: "Photos",
                     folderPath: "/Users/owner/Documents/Yomi", quality: .excellent, colorMode: .color,
                     sides: .simplex, skipBlankPages: false, reduceBleedThrough: false, autoRotate: false,
-                    fileFormat: .jpeg, searchablePDF: false, compression: .low),
+                    fileFormat: .jpeg, searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage),
     ]
 
     @Test func decodesVersion1Settings() throws {

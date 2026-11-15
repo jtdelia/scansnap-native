@@ -76,17 +76,6 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
-    public enum FileNaming: String, Codable, CaseIterable, Sendable {
-        case dateTime, prefixAndNumber
-
-        public var title: String {
-            switch self {
-            case .dateTime: "Date and time"
-            case .prefixAndNumber: "Name and number"
-            }
-        }
-    }
-
     public enum Compression: String, Codable, CaseIterable, Sendable {
         case low, medium, high
 
@@ -133,8 +122,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var fileFormat: FileFormat
     public var searchablePDF: Bool
     public var compression: Compression
-    public var fileNaming: FileNaming
-    public var filePrefix: String
+    public var namePattern: FileNamePattern
     public var nextNumber: Int
     public var numberDigits: Int
 
@@ -153,8 +141,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         fileFormat: FileFormat = .pdf,
         searchablePDF: Bool = true,
         compression: Compression = .medium,
-        fileNaming: FileNaming = .dateTime,
-        filePrefix: String = "Scan",
+        namePattern: FileNamePattern = .dateAndTime,
         nextNumber: Int = 1,
         numberDigits: Int = 3
     ) {
@@ -172,8 +159,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.fileFormat = fileFormat
         self.searchablePDF = searchablePDF
         self.compression = compression
-        self.fileNaming = fileNaming
-        self.filePrefix = filePrefix
+        self.namePattern = namePattern
         self.nextNumber = nextNumber
         self.numberDigits = numberDigits
     }
@@ -198,10 +184,22 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         fileFormat = try container.decodeIfPresent(FileFormat.self, forKey: .fileFormat) ?? defaults.fileFormat
         searchablePDF = try container.decodeIfPresent(Bool.self, forKey: .searchablePDF) ?? defaults.searchablePDF
         compression = try container.decodeIfPresent(Compression.self, forKey: .compression) ?? defaults.compression
-        fileNaming = try container.decodeIfPresent(FileNaming.self, forKey: .fileNaming) ?? defaults.fileNaming
-        filePrefix = try container.decodeIfPresent(String.self, forKey: .filePrefix) ?? defaults.filePrefix
+        namePattern = try (try? container.decodeIfPresent(FileNamePattern.self, forKey: .namePattern))
+            ?? Self.convertedNamePattern(decoder.container(keyedBy: LegacyKeys.self), fileFormat: fileFormat)
         nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
+    }
+
+    /// Keys that earlier versions saved and this version only reads.
+    private enum LegacyKeys: String, CodingKey { case fileNaming, filePrefix }
+
+    /// The name pattern matching an earlier version's file naming choice, so it names files exactly as before.
+    private static func convertedNamePattern(_ container: KeyedDecodingContainer<LegacyKeys>,
+                                             fileFormat: FileFormat) throws -> FileNamePattern {
+        if try container.decodeIfPresent(String.self, forKey: .fileNaming) == "prefixAndNumber" {
+            return try .nameAndNumber(container.decodeIfPresent(String.self, forKey: .filePrefix) ?? "Scan")
+        }
+        return fileFormat == .jpeg ? .dateTimeAndPage : .dateAndTime
     }
 
     public static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser
@@ -240,7 +238,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         ScanProfile(name: "Receipts", quality: .automatic, colorMode: .auto, sides: .simplex),
         ScanProfile(name: "Photos", quality: .excellent, colorMode: .color, sides: .simplex,
                     skipBlankPages: false, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg, searchablePDF: false,
-                    compression: .low),
+                    compression: .low, namePattern: .dateTimeAndPage),
     ]
 }
 
