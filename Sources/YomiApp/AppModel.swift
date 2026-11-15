@@ -88,16 +88,13 @@ final class AppModel {
             if let index = profiles.firstIndex(where: { $0.id == profile.id }), numbersUsed > 0 {
                 profiles[index].nextNumber += numbersUsed
             }
-            let skipped = outcome.blankPagesSkipped > 0 ? ", \(outcome.blankPagesSkipped) blank skipped" : ""
-            if let warning = outcome.warning {
-                jobState = .failed("Saved \(outcome.pages) page\(outcome.pages == 1 ? "" : "s"). \(warning)")
+            let summary = outcome.summary(defaultPlace: profile.folderURL.lastPathComponent)
+            if summary.isProblem {
+                jobState = .failed(summary.message)
                 ProgressPanelController.shared.hide(after: 4)
             } else {
-                let place = outcome.place ?? profile.folderURL.lastPathComponent
-                jobState = .finished(outcome.pages == 0
-                    ? "No pages saved\(skipped)."
-                    : "Saved \(outcome.pages) page\(outcome.pages == 1 ? "" : "s") to \(place)\(skipped).")
-                ProgressPanelController.shared.hide(after: 1.6)
+                jobState = .finished(summary.message)
+                ProgressPanelController.shared.hide(after: outcome.notice == nil ? 1.6 : 4)
             }
             switch profile.afterScan {
             case .nothing: break

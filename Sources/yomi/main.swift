@@ -146,7 +146,7 @@ func scanPhotos(_ engine: ScanEngine, profile: ScanProfile, keepRaw: Bool) throw
     print(String(format: "Scanned %d sheet(s), %d page(s) in %.1f s → %@", sheets, processed.count,
                  Date().timeIntervalSince(start), profile.folderPath))
     files.forEach { print("  \($0.lastPathComponent)") }
-    if let warning = correction.warning { print(warning) }
+    if let notice = correction.notice { print(notice) }
 }
 
 do {

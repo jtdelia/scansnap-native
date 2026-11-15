@@ -94,8 +94,8 @@ public enum ColorCorrection: @unchecked Sendable {
         }
     }
 
-    /// Shown in the progress panel.
-    public var warning: String? {
+    /// Shown in the progress panel beside a finished batch.
+    public var notice: String? {
         if case .skipped = self { return "Color correction was skipped: the scanner's color profile was not found." }
         return nil
     }

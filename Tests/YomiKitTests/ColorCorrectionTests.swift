@@ -113,14 +113,14 @@ struct ColorCorrectionTests {
     @Test func batchWithAColorProfileSavesDisplayP3() throws {
         let profile = try Self.photoProfile(correctColor: true)
         let correction = ColorCorrection.forBatch(profile, searching: [try Self.profileFolder()])
-        #expect(correction.warning == nil)
+        #expect(correction.notice == nil)
         #expect(try Self.savedColorSpace(profile, correction: correction) == CGColorSpace.displayP3 as String)
     }
 
     @Test func batchWithoutAColorProfileSavesSRGBAndWarns() throws {
         let profile = try Self.photoProfile(correctColor: true)
         let correction = ColorCorrection.forBatch(profile, searching: [try Self.temporaryFolder()])
-        #expect(correction.warning == "Color correction was skipped: the scanner's color profile was not found.")
+        #expect(correction.notice == "Color correction was skipped: the scanner's color profile was not found.")
         #expect(try Self.savedColorSpace(profile, correction: correction) == CGColorSpace.sRGB as String)
     }
 
@@ -128,6 +128,6 @@ struct ColorCorrectionTests {
         let profile = try Self.photoProfile(correctColor: false)
         let correction = ColorCorrection.forBatch(profile, searching: [try Self.profileFolder()])
         #expect(correction.colorSpace == nil)
-        #expect(correction.warning == nil)
+        #expect(correction.notice == nil)
     }
 }

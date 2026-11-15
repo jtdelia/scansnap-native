@@ -104,6 +104,7 @@ struct ScanProgressView: View {
             Label(message, systemImage: "checkmark.circle.fill")
                 .font(.callout)
                 .foregroundStyle(.green)
+                .lineLimit(3)
         case let .failed(message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)

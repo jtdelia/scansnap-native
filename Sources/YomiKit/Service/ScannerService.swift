@@ -49,6 +49,20 @@ public struct ScanOutcome: Sendable {
     public var place: String? = nil
     /// Set when the batch stopped early or was not saved where the scan profile asked; pages are still saved.
     public var warning: String? = nil
+    /// Something the batch was saved without, such as colour correction, that does not make it a failure.
+    public var notice: String? = nil
+
+    /// What the progress panel says once the batch is saved, and whether it reads as a problem.
+    /// `defaultPlace` names where the batch went when `place` is not set.
+    public func summary(defaultPlace: String) -> (message: String, isProblem: Bool) {
+        let saved = "Saved \(pages) page\(pages == 1 ? "" : "s")"
+        if let warning {
+            return ([saved + ".", warning, notice].compactMap(\.self).joined(separator: " "), true)
+        }
+        let skipped = blankPagesSkipped > 0 ? ", \(blankPagesSkipped) blank skipped" : ""
+        let message = pages == 0 ? "No pages saved\(skipped)." : "\(saved) to \(place ?? defaultPlace)\(skipped)."
+        return ([message, notice].compactMap(\.self).joined(separator: " "), false)
+    }
 }
 
 /// Appends timestamped lines to ~/Library/Logs/Yomi.log.
@@ -334,6 +348,7 @@ public final class ScannerService: @unchecked Sendable {
             update { $0.phase = phase }
         }
         if let warning = saved.warning { ScanLog.write("  \(warning)") }
+        if let notice = saved.notice { ScanLog.write("  \(notice)") }
         var outcome = ScanOutcome(files: saved.files, sheets: sheets, pages: pages.count, blankPagesSkipped: skipped,
                                   place: saved.place)
         let stopWarning = stopReason.map { stopReason in
@@ -341,8 +356,10 @@ public final class ScannerService: @unchecked Sendable {
                 ? "Stopped. Pages scanned so far were saved."
                 : "Stopped early (\(stopReason)). Pages scanned so far were saved."
         }
-        let warnings = [stopWarning, colorCorrection.warning, saved.warning].compactMap { $0 }
+        let warnings = [stopWarning, saved.warning].compactMap { $0 }
         outcome.warning = warnings.isEmpty ? nil : warnings.joined(separator: " ")
+        let notices = [colorCorrection.notice, saved.notice].compactMap { $0 }
+        outcome.notice = notices.isEmpty ? nil : notices.joined(separator: " ")
         return outcome
     }
 }
