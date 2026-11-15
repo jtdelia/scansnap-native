@@ -40,7 +40,12 @@ struct SettingsView: View {
         NavigationSplitView {
             List(selection: $selection) {
                 Section("Scanner") {
-                    Label("ScanSnap S1300", systemImage: "scanner").tag(SidebarItem.scanner)
+                    Label {
+                        Text("ScanSnap S1300")
+                    } icon: {
+                        ScannerGlyph().frame(width: 20)
+                    }
+                    .tag(SidebarItem.scanner)
                 }
                 Section("Profiles") {
                     ForEach(model.profiles) { profile in
@@ -141,8 +146,8 @@ struct ScannerSettingsView: View {
         Form {
             Section {
                 HStack(spacing: 14) {
-                    Image(systemName: "scanner.fill")
-                        .font(.system(size: 34))
+                    ScannerGlyph()
+                        .frame(width: 38)
                         .foregroundStyle(model.connection.isReady ? Color.accentColor : .secondary)
                         .frame(width: 56, height: 56)
                         .glassEffect(.regular, in: .circle)
