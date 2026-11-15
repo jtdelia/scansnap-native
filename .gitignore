@@ -35,3 +35,10 @@ xcuserdata/
 
 # Scanner firmware is copyrighted by the vendor and must never be committed
 *.nal
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*

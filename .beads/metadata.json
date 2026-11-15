@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "yomi",
+  "project_id": "fff46402-f473-4462-b321-6ed185f0a60e"
+}
