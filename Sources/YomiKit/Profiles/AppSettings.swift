@@ -50,6 +50,23 @@ public struct AppSettings: Codable, Equatable, Sendable {
         appearance = try container.decodeIfPresent(Appearance.self, forKey: .appearance) ?? defaults.appearance
     }
 
+    /// Settings for an install with nothing saved yet.
+    public static var newInstall: AppSettings {
+        AppSettings(profiles: ScanProfile.defaults, buttonProfileID: ScanProfile.defaults.first?.id,
+                    addedPhotoProfiles: true)
+    }
+
+    /// Adds the built-in photo scan profiles to settings saved before they existed. Runs once per
+    /// install, so a photo scan profile the user deletes stays deleted.
+    public func upgraded() -> AppSettings {
+        guard !addedPhotoProfiles else { return self }
+        var settings = self
+        let saved = Set(profiles.map(\.id))
+        settings.profiles += ScanProfile.builtInPhotoProfiles.filter { !saved.contains($0.id) }
+        settings.addedPhotoProfiles = true
+        return settings
+    }
+
     public init(json: Data) throws {
         self = try JSONDecoder().decode(AppSettings.self, from: json)
     }

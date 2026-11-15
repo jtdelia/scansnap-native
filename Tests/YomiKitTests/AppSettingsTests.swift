@@ -99,6 +99,36 @@ struct AppSettingsTests {
         #expect(AppSettings.Appearance.dark.appKitName == .darkAqua)
     }
 
+    // MARK: Photo scan profiles
+
+    @Test func newInstallHasBothPhotoProfilesAndNoPhotos() {
+        let settings = AppSettings.newInstall
+        let names = settings.profiles.map(\.name)
+        #expect(names.contains("Photos – Quick"))
+        #expect(names.contains("Photos – Keepers"))
+        #expect(!names.contains("Photos"))
+        #expect(Set(settings.profiles.map(\.id)).isSuperset(of: ScanProfile.builtInPhotoIDs))
+        #expect(settings.buttonProfileID == settings.profiles.first?.id)
+    }
+
+    @Test func upgradeKeepsSavedProfilesAndAddsPhotoProfilesOnce() throws {
+        let saved = try AppSettings(json: Self.fixture("settings-v1"))
+        let upgraded = saved.upgraded()
+        #expect(Array(upgraded.profiles.prefix(3)) == Self.v1Profiles)
+        #expect(upgraded.profiles.dropFirst(3).map(\.name) == ["Photos – Quick", "Photos – Keepers"])
+        #expect(Set(upgraded.profiles.dropFirst(3).map(\.id)) == ScanProfile.builtInPhotoIDs)
+        #expect(upgraded.buttonProfileID == saved.buttonProfileID)
+        #expect(upgraded.addedPhotoProfiles)
+        #expect(upgraded.upgraded() == upgraded)
+    }
+
+    @Test func deletedPhotoProfileIsNotAddedAgain() throws {
+        var settings = try AppSettings(json: Self.fixture("settings-v1")).upgraded()
+        settings.profiles.removeAll { $0.name == "Photos – Keepers" }
+        let reloaded = try AppSettings(json: settings.json()).upgraded()
+        #expect(reloaded.profiles == settings.profiles)
+    }
+
     @Test func emptySettingsDecode() throws {
         let settings = try AppSettings(json: Data("{}".utf8))
         #expect(settings.profiles.isEmpty)

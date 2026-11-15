@@ -158,16 +158,21 @@ final class AppModel {
     // MARK: Persistence
 
     private func load() {
-        defer { loaded = true }
         if let data = try? Data(contentsOf: Self.settingsURL),
-           let settings = try? AppSettings(json: data), !settings.profiles.isEmpty {
+           let saved = try? AppSettings(json: data), !saved.profiles.isEmpty {
+            let settings = saved.upgraded()
             profiles = settings.profiles
             buttonProfileID = settings.buttonProfileID ?? settings.profiles.first?.id
             addedPhotoProfiles = settings.addedPhotoProfiles
             appearance = settings.appearance
+            loaded = true
+            if settings != saved { save() }
         } else {
-            profiles = ScanProfile.defaults
-            buttonProfileID = profiles.first?.id
+            let settings = AppSettings.newInstall
+            profiles = settings.profiles
+            buttonProfileID = settings.buttonProfileID
+            addedPhotoProfiles = settings.addedPhotoProfiles
+            loaded = true
         }
     }
 

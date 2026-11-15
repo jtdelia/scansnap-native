@@ -251,13 +251,34 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         UUID(uuidString: "BC554CB0-727B-446B-BC17-638B509F0832")!,
     ]
 
+    /// The built-in photo scan profiles, as new installs get them and existing installs gain them once.
+    public static let builtInPhotoProfiles: [ScanProfile] = [
+        photoProfile(id: "4D211260-1BF8-426E-B9B8-4592CB2614D5", name: "Photos – Quick", quality: .fine),
+        photoProfile(id: "BC554CB0-727B-446B-BC17-638B509F0832", name: "Photos – Keepers", quality: .excellent),
+    ]
+
+    /// Auto-rotate stays off because text-based rotation misfires on photos.
+    private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
+        ScanProfile(id: UUID(uuidString: id)!, name: name, quality: quality, colorMode: .color, sides: .duplex,
+                    skipBlankPages: true, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg,
+                    searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage, correctColor: true)
+    }
+
+    /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving into `folder` at `dpi`,
+    /// or `nil` when no quality saves at that resolution.
+    public static func commandLinePhoto(dpi: Int, folder: URL) -> ScanProfile? {
+        guard var profile = builtInPhotoProfiles.first(where: { $0.name == "Photos – Keepers" }),
+              let quality = Quality.allCases.first(where: { $0 != .automatic && $0.outputDPI(pageLengthInches: 0) == dpi })
+        else { return nil }
+        profile.folderPath = folder.path
+        profile.quality = quality
+        return profile
+    }
+
     public static let defaults: [ScanProfile] = [
         ScanProfile(name: "Scan to Yomi Folder"),
         ScanProfile(name: "Receipts", quality: .automatic, colorMode: .auto, sides: .simplex),
-        ScanProfile(name: "Photos", quality: .excellent, colorMode: .color, sides: .simplex,
-                    skipBlankPages: false, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg, searchablePDF: false,
-                    compression: .low, namePattern: .dateTimeAndPage),
-    ]
+    ] + builtInPhotoProfiles
 }
 
 extension KeyedDecodingContainer {

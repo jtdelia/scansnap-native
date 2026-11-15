@@ -59,6 +59,7 @@ The `yomi` command-line tool drives the same code without the app:
 swift run yomi info                # find the scanner and print its identity
 swift run yomi firmware            # upload firmware
 swift run yomi scan 300 ~/Desktop  # scan the loaded sheets at 300 dpi to a PDF
+swift run yomi scan ~/Desktop --photo  # scan prints with the "Photos – Keepers" settings (600 dpi unless given)
 ```
 
 Logs are written to `~/Library/Logs/Yomi.log`.
