@@ -33,12 +33,34 @@ public enum DocumentWriter {
                 urls.append(url)
             }
             return urls
+        case .multiPageTIFF:
+            let url = uniqueURL(in: folder, base: baseName(profile, date: date, number: profile.nextNumber),
+                                ext: profile.fileFormat.fileExtension)
+            try TIFFWriter.write(pages, to: url) { index in
+                progress?("Saving page \(index + 1) of \(pages.count)…")
+            }
+            return [url]
         }
     }
 
     /// Files consumed by a save, used to advance `nextNumber`.
     public static func numbersUsed(pages: Int, profile: ScanProfile) -> Int {
         profile.fileFormat == .jpeg ? pages : 1
+    }
+
+    /// Name of the first file a batch scanned at `date` would get, before clash suffixes.
+    public static func exampleFileName(for profile: ScanProfile, date: Date = Date()) -> String {
+        switch profile.fileFormat {
+        case .pdf:
+            return baseName(profile, date: date, number: profile.nextNumber) + ".pdf"
+        case .jpeg:
+            let base = profile.fileNaming == .dateTime
+                ? baseName(profile, date: date, number: 0) + "_001"
+                : baseName(profile, date: date, number: profile.nextNumber)
+            return base + ".jpg"
+        case .multiPageTIFF:
+            return baseName(profile, date: date, number: profile.nextNumber) + "." + profile.fileFormat.fileExtension
+        }
     }
 
     static func baseName(_ profile: ScanProfile, date: Date, number: Int) -> String {

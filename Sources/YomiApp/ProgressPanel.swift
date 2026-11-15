@@ -61,20 +61,25 @@ struct ScanProgressView: View {
     let model: AppModel
 
     var body: some View {
-        HStack(alignment: .top, spacing: 18) {
-            thumbnail
-            VStack(alignment: .leading, spacing: 10) {
-                header
-                status
-                counters
-                Spacer(minLength: 0)
-                footer
+        GlassEffectContainer {
+            HStack(alignment: .top, spacing: 18) {
+                thumbnail
+                VStack(alignment: .leading, spacing: 10) {
+                    header
+                    status
+                    counters
+                    Spacer(minLength: 0)
+                    footer
+                }
             }
+            .padding(20)
+            .frame(width: 440, height: 230)
+            .containerShape(.rect(cornerRadius: 28))
+            .glassEffect(.regular, in: .rect(cornerRadius: 28))
         }
-        .padding(20)
-        .frame(width: 440, height: 230)
-        .glassEffect(.regular, in: .rect(cornerRadius: 28))
         .padding(10)
+        // The panel never becomes key, so it would otherwise always draw as inactive.
+        .environment(\.appearsActive, true)
     }
 
     private var header: some View {
@@ -134,14 +139,13 @@ struct ScanProgressView: View {
             Spacer()
             if model.jobState == .running {
                 Button("Stop") { model.cancelScan() }
-                    .buttonStyle(.glass)
-            }
+                    .buttonStyle(.glass(.regular.interactive()))            }
         }
     }
 
     private var thumbnail: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10).fill(.background.secondary)
+            ConcentricRectangle(corners: .concentric(minimum: 10), isUniform: true).fill(.background.secondary)
             if let image = model.progress?.thumbnail {
                 Image(decorative: image, scale: 1)
                     .resizable()

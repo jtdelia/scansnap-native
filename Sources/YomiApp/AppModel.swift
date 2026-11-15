@@ -15,6 +15,12 @@ final class AppModel {
 
     var profiles: [ScanProfile] = [] { didSet { save() } }
     var buttonProfileID: UUID? { didSet { save() } }
+    var appearance: AppSettings.Appearance = .system {
+        didSet {
+            NSApp.appearance = appearance.appKitName.flatMap(NSAppearance.init(named:))
+            save()
+        }
+    }
     var connection: ScannerConnection = .disconnected
     var progress: ScanProgress?
     var jobState: JobState = .idle
@@ -157,6 +163,7 @@ final class AppModel {
             profiles = settings.profiles
             buttonProfileID = settings.buttonProfileID ?? settings.profiles.first?.id
             addedPhotoProfiles = settings.addedPhotoProfiles
+            appearance = settings.appearance
         } else {
             profiles = ScanProfile.defaults
             buttonProfileID = profiles.first?.id
@@ -166,7 +173,7 @@ final class AppModel {
     private func save() {
         guard loaded else { return }
         let settings = AppSettings(profiles: profiles, buttonProfileID: buttonProfileID,
-                                   addedPhotoProfiles: addedPhotoProfiles)
+                                   addedPhotoProfiles: addedPhotoProfiles, appearance: appearance)
         do {
             try FileManager.default.createDirectory(at: Self.supportFolder, withIntermediateDirectories: true)
             try settings.json().write(to: Self.settingsURL, options: .atomic)
