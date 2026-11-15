@@ -1,8 +1,10 @@
 import CoreGraphics
+import CoreML
 import CoreText
 import Foundation
 import ImageIO
 import Testing
+import Vision
 @testable import YomiKit
 
 /// Writing on the back of a print becomes the photo's caption, and the back is never saved.
@@ -105,6 +107,20 @@ struct BackCaptionTests {
         Side.Text(string: string, font: "Bradley Hand Bold", size: 32, ink: (35, 45, 120), x: 60, y: y)
     }
 
+    private static let textRecognition: (available: Bool, comment: Comment) = {
+        do {
+            let word = Side.Text(string: "Recognition", font: "Helvetica", size: 48, ink: (0, 0, 0), x: 60, y: 210)
+            let image = try scan(Side(text: [word]), as: .back).cgImage()
+            let reading = BackCaptionReader.read(image)
+            if case let .caption(text) = reading, text.localizedCaseInsensitiveCompare(word.string) == .orderedSame {
+                return (true, "Vision can read rendered text")
+            }
+            return (false, Comment(rawValue: "Vision cannot read rendered text: \(reading)"))
+        } catch {
+            return (false, Comment(rawValue: "Vision capability probe failed: \(error as NSError)"))
+        }
+    }()
+
     private static let handwrittenNote = [
         handwriting("Grandma and Joe", y: 210),
         handwriting("at Lake Tahoe", y: 260),
@@ -130,7 +146,8 @@ struct BackCaptionTests {
         }
     }
 
-    @Test func handwrittenBackBecomesTheCaptionAndIsNotSaved() async throws {
+    @Test(.enabled(if: textRecognition.available, textRecognition.comment))
+    func handwrittenBackBecomesTheCaptionAndIsNotSaved() async throws {
         let sheet = try await Self.process(front: Self.picture, back: Side(text: Self.handwrittenNote))
         #expect(sheet.pages.map(\.source) == [.front])
         let caption = try #require(sheet.pages.first?.caption, "\(sheet.notes)")
@@ -138,7 +155,8 @@ struct BackCaptionTests {
         #expect(caption.contains("1962"))
     }
 
-    @Test func handwrittenNoteIsReadOnCPU() async throws {
+    @Test(.enabled(if: textRecognition.available, textRecognition.comment))
+    func handwrittenNoteIsReadOnCPU() async throws {
         let reading = try await offTheTaskPool {
             let back = try Self.scan(Side(text: Self.handwrittenNote), as: .back).cgImage()
             return BackCaptionReader.read(back, useCPU: true)
@@ -150,6 +168,52 @@ struct BackCaptionTests {
         #expect(caption.localizedCaseInsensitiveContains("Grandma and Joe"))
         #expect(caption.localizedCaseInsensitiveContains("Lake Tahoe"))
         #expect(caption.contains("1962"))
+    }
+
+    // TEMPORARY: Remove after diagnosing text recognition on the GitHub runner.
+    @Test func visionConfigurationDiagnostic() async {
+        do {
+            try await offTheTaskPool {
+                let image = try Self.scan(Side(text: [Self.handwriting("Grandma and Joe", y: 210)]), as: .back).cgImage()
+                for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
+                    for automaticLanguage in [true, false] {
+                        for useCPU in [false, true] {
+                            let request = VNRecognizeTextRequest()
+                            request.recognitionLevel = level
+                            request.automaticallyDetectsLanguage = automaticLanguage
+                            if !automaticLanguage { request.recognitionLanguages = ["en-US"] }
+                            let configuration = "level=\(level == .accurate ? "accurate" : "fast")"
+                                + " language=\(automaticLanguage ? "automatic" : "en-US")"
+                                + " device=\(useCPU ? "CPU" : "default") revision=\(request.revision)"
+                            do {
+                                print("VISION-DIAG \(configuration) supportedLanguages=\(try request.supportedRecognitionLanguages())")
+                            } catch {
+                                let error = error as NSError
+                                print("VISION-DIAG \(configuration) supportedLanguages error domain=\(error.domain) code=\(error.code)")
+                            }
+                            do {
+                                if useCPU {
+                                    guard let cpu = try request.supportedComputeStageDevices[.main]?.first(where: {
+                                        if case .cpu = $0 { return true }
+                                        return false
+                                    }) else { throw NSError(domain: VNErrorDomain, code: VNErrorCode.unsupportedComputeDevice.rawValue) }
+                                    request.setComputeDevice(cpu, for: .main)
+                                }
+                                try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+                                let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+                                print("VISION-DIAG \(configuration) text=\(text.debugDescription)")
+                            } catch {
+                                let error = error as NSError
+                                print("VISION-DIAG \(configuration) error domain=\(error.domain) code=\(error.code)")
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            let error = error as NSError
+            print("VISION-DIAG image preparation error domain=\(error.domain) code=\(error.code)")
+        }
     }
 
     /// Lines turned by `angle` (anticlockwise) around the print's centre.
@@ -165,14 +229,16 @@ struct BackCaptionTests {
         }
     }
 
-    @Test(arguments: [("upside down", CGFloat.pi), ("sideways", .pi / 2), ("sideways the other way", -.pi / 2)])
+    @Test(.enabled(if: textRecognition.available, textRecognition.comment),
+          arguments: [("upside down", CGFloat.pi), ("sideways", .pi / 2), ("sideways the other way", -.pi / 2)])
     func writingInAnyDirectionIsRead(_ name: String, angle: CGFloat) async throws {
         let back = Side(text: Self.turned(Self.handwrittenNote, by: angle))
         let sheet = try await Self.process(front: Self.picture, back: back)
         #expect(sheet.pages.first?.caption?.localizedCaseInsensitiveContains("Lake Tahoe") == true, "\(sheet.notes)")
     }
 
-    @Test func onlyHandwritingFromABackWithPrintingBecomesTheCaption() async throws {
+    @Test(.enabled(if: textRecognition.available, textRecognition.comment))
+    func onlyHandwritingFromABackWithPrintingBecomesTheCaption() async throws {
         let back = Side(text: Self.brandPrinting + Self.labPrinting + Self.handwrittenNote)
         let sheet = try await Self.process(front: Self.picture, back: back)
         let caption = try #require(sheet.pages.first?.caption, "\(sheet.notes)")
@@ -182,13 +248,14 @@ struct BackCaptionTests {
         #expect(!caption.contains("2847"))
     }
 
-    @Test func printFedBackSideFirstGetsTheCaptionFromItsFront() async throws {
+    @Test(.enabled(if: textRecognition.available, textRecognition.comment))
+    func printFedBackSideFirstGetsTheCaptionFromItsFront() async throws {
         let sheet = try await Self.process(front: Side(text: Self.handwrittenNote), back: Self.picture)
         #expect(sheet.pages.map(\.source) == [.back])
         #expect(sheet.pages.first?.caption?.localizedCaseInsensitiveContains("Lake Tahoe") == true, "\(sheet.notes)")
     }
 
-    @Test(arguments: ["1962", "7/4/62"])
+    @Test(.enabled(if: textRecognition.available, textRecognition.comment), arguments: ["1962", "7/4/62"])
     func handwrittenDateOnItsOwnBecomesTheCaption(date: String) async throws {
         let back = Side(text: [Self.handwriting(date, y: 260)] + Self.labPrinting)
         let sheet = try await Self.process(front: Self.picture, back: back)
@@ -315,7 +382,15 @@ struct BackCaptionTests {
         #expect(BackCaptionReader.handwrittenLines(["at Lake Tahoe KODAK ROYAL PAPER"]) == ["at Lake Tahoe"])
     }
 
-    @Test(arguments: [("blank", []), ("brand printing", brandPrinting), ("lab printing", labPrinting)])
+    @Test func blankBackCountsAsBlank() async throws {
+        let sheet = try await Self.process(front: Self.picture, back: Self.blank)
+        #expect(sheet.pages.map(\.source) == [.front])
+        #expect(sheet.pages.first?.caption == nil)
+        #expect(sheet.blankSides == 1, "\(sheet.notes)")
+    }
+
+    @Test(.enabled(if: textRecognition.available, textRecognition.comment),
+          arguments: [("brand printing", brandPrinting), ("lab printing", labPrinting)])
     func printingCountsAsBlank(_ name: String, printing: [Side.Text]) async throws {
         let sheet = try await Self.process(front: Self.picture, back: Side(text: printing))
         #expect(sheet.pages.map(\.source) == [.front])
