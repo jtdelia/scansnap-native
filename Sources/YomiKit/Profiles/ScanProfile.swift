@@ -66,13 +66,16 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public enum FileFormat: String, Codable, CaseIterable, Sendable {
-        case pdf, jpeg, multiPageTIFF
+        case pdf, jpeg, png, tiff, multiPageTIFF, heic
 
         public var title: String {
             switch self {
             case .pdf: "PDF (*.pdf)"
             case .jpeg: "JPEG (*.jpg)"
+            case .png: "PNG (*.png)"
+            case .tiff: "TIFF (*.tiff)"
             case .multiPageTIFF: "Multi-page TIFF (*.tiff)"
+            case .heic: "HEIC (*.heic)"
             }
         }
 
@@ -80,7 +83,25 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
             switch self {
             case .pdf: "pdf"
             case .jpeg: "jpg"
-            case .multiPageTIFF: "tiff"
+            case .png: "png"
+            case .tiff, .multiPageTIFF: "tiff"
+            case .heic: "heic"
+            }
+        }
+
+        /// Whether every page is saved as its own image file.
+        public var savesPagesSeparately: Bool {
+            switch self {
+            case .jpeg, .png, .tiff, .heic: true
+            case .pdf, .multiPageTIFF: false
+            }
+        }
+
+        /// Whether the compression setting applies: JPEG, HEIC and the images inside PDFs are lossy.
+        public var usesCompression: Bool {
+            switch self {
+            case .pdf, .jpeg, .heic: true
+            case .png, .tiff, .multiPageTIFF: false
             }
         }
     }
@@ -143,6 +164,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var correctColor: Bool
     /// Rotate prints upright by faces, using text only when there are none. Replaces `autoRotate` when on.
     public var rotateByFaces: Bool
+    /// Save each file with Core Image's auto-adjustments, plus an untouched copy named with `_original`.
+    public var autoEnhance: Bool
 
     public init(
         id: UUID = UUID(),
@@ -165,7 +188,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         nextNumber: Int = 1,
         numberDigits: Int = 3,
         correctColor: Bool = false,
-        rotateByFaces: Bool = false
+        rotateByFaces: Bool = false,
+        autoEnhance: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -188,6 +212,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.numberDigits = numberDigits
         self.correctColor = correctColor
         self.rotateByFaces = rotateByFaces
+        self.autoEnhance = autoEnhance
     }
 
     /// Every key is optional, so scan profiles saved by any earlier version keep loading.
@@ -219,6 +244,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
         correctColor = try container.decodePhotoSetting(forKey: .correctColor, profileID: id)
         rotateByFaces = try container.decodePhotoSetting(forKey: .rotateByFaces, profileID: id)
+        autoEnhance = try container.decodePhotoSetting(forKey: .autoEnhance, profileID: id)
     }
 
     /// Keys that earlier versions saved and this version only reads.
@@ -244,7 +270,10 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         switch fileFormat {
         case .pdf: parts.append(searchablePDF ? "Searchable PDF" : "PDF")
         case .jpeg: parts.append("JPEG")
+        case .png: parts.append("PNG")
+        case .tiff: parts.append("TIFF")
         case .multiPageTIFF: parts.append("Multi-page TIFF")
+        case .heic: parts.append("HEIC")
         }
         return parts.joined(separator: " · ")
     }
@@ -258,7 +287,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         options.rotateByFaces = rotateByFaces
         options.colorMode = colorMode
         options.quality = quality
-        options.documentTone = !(colorMode == .color && fileFormat == .jpeg)
+        options.documentTone = !(colorMode == .color && fileFormat.savesPagesSeparately)
         return options
     }
 
@@ -278,9 +307,9 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     /// Text-only auto-rotate stays off because it misfires on photos; face rotation takes its place.
     private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
         ScanProfile(id: UUID(uuidString: id)!, name: name, quality: quality, colorMode: .color, sides: .duplex,
-                    skipBlankPages: true, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg,
+                    skipBlankPages: true, reduceBleedThrough: false, autoRotate: false, fileFormat: .heic,
                     searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage, correctColor: true,
-                    rotateByFaces: true)
+                    rotateByFaces: true, autoEnhance: true)
     }
 
     /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving into `folder` at `dpi`,
