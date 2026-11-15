@@ -42,6 +42,7 @@ final class AppModel {
 
     init() {
         load()
+        service.photoLibrary = PhotoKitLibrary()
         service.onConnectionChange = { connection in
             Task { @MainActor in self.connection = connection }
         }
@@ -92,9 +93,10 @@ final class AppModel {
                 jobState = .failed("Saved \(outcome.pages) page\(outcome.pages == 1 ? "" : "s"). \(warning)")
                 ProgressPanelController.shared.hide(after: 4)
             } else {
-                jobState = .finished(outcome.files.isEmpty
+                let place = outcome.place ?? profile.folderURL.lastPathComponent
+                jobState = .finished(outcome.pages == 0
                     ? "No pages saved\(skipped)."
-                    : "Saved \(outcome.pages) page\(outcome.pages == 1 ? "" : "s") to \(profile.folderURL.lastPathComponent)\(skipped).")
+                    : "Saved \(outcome.pages) page\(outcome.pages == 1 ? "" : "s") to \(place)\(skipped).")
                 ProgressPanelController.shared.hide(after: 1.6)
             }
             switch profile.afterScan {

@@ -14,8 +14,13 @@ struct CommandLinePhotoTests {
         let profile = try #require(ScanProfile.commandLinePhoto(dpi: 600, folder: Self.folder))
         var expected = Self.keepers
         expected.folderPath = "/tmp/yomi-photos"
+        expected.saveTo = .folder
         #expect(profile == expected)
         #expect(profile.correctColor)
+    }
+
+    @Test func neverSavesToPhotos() throws {
+        #expect(try #require(ScanProfile.commandLinePhoto(dpi: 300, folder: Self.folder)).saveTo == .folder)
     }
 
     @Test(arguments: [(150, ScanProfile.Quality.normal), (200, .better), (300, .fine), (600, .excellent)])

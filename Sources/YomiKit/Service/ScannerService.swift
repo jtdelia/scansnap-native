@@ -45,7 +45,9 @@ public struct ScanOutcome: Sendable {
     public let sheets: Int
     public let pages: Int
     public let blankPagesSkipped: Int
-    /// Set when the batch stopped early; pages scanned before the problem are still saved.
+    /// Where the batch was saved, such as the folder's name or "Photos".
+    public var place: String? = nil
+    /// Set when the batch stopped early or was not saved where the scan profile asked; pages are still saved.
     public var warning: String? = nil
 }
 
@@ -79,6 +81,8 @@ public final class ScannerService: @unchecked Sendable {
     public var onConnectionChange: (@Sendable (ScannerConnection) -> Void)?
     public var onButtonPress: (@Sendable () -> Void)?
     public var onProgress: (@Sendable (ScanProgress) -> Void)?
+    /// Photos, for scan profiles that save there; `nil` saves those batches to their folder instead.
+    public var photoLibrary: (any PhotoLibrary)?
 
     private let queue = DispatchQueue(label: "Yomi.scanner", qos: .userInteractive)
     private var timer: DispatchSourceTimer?
@@ -326,16 +330,18 @@ public final class ScannerService: @unchecked Sendable {
             if let stopReason { throw stopReason }
             return ScanOutcome(files: [], sheets: sheets, pages: 0, blankPagesSkipped: skipped)
         }
-        let files = try DocumentWriter.save(pages, profile: profile) { phase in
+        let saved = try BatchSaver.save(pages, profile: profile, photoLibrary: photoLibrary) { phase in
             update { $0.phase = phase }
         }
-        var outcome = ScanOutcome(files: files, sheets: sheets, pages: pages.count, blankPagesSkipped: skipped)
+        if let warning = saved.warning { ScanLog.write("  \(warning)") }
+        var outcome = ScanOutcome(files: saved.files, sheets: sheets, pages: pages.count, blankPagesSkipped: skipped,
+                                  place: saved.place)
         let stopWarning = stopReason.map { stopReason in
             (stopReason as? ScanError)?.isCancellation == true
                 ? "Stopped. Pages scanned so far were saved."
                 : "Stopped early (\(stopReason)). Pages scanned so far were saved."
         }
-        let warnings = [stopWarning, colorCorrection.warning].compactMap { $0 }
+        let warnings = [stopWarning, colorCorrection.warning, saved.warning].compactMap { $0 }
         outcome.warning = warnings.isEmpty ? nil : warnings.joined(separator: " ")
         return outcome
     }

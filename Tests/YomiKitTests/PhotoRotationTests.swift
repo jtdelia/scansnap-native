@@ -51,9 +51,9 @@ struct PhotoRotationTests {
     @Test(arguments: [CGImagePropertyOrientation.up, .down, .left, .right])
     func printWithFacesComesOutUpright(fed: CGImagePropertyOrientation) throws {
         let upright = try Self.familyPrint()
-        let page = try PageProcessor.process(try Self.oriented(upright, fed), resolution: 300, side: .front,
-                                             options: Self.photoOptions())
-        #expect(try Self.looksLike(page.image, upright))
+        let image = try PageProcessor.process(try Self.oriented(upright, fed), resolution: 300, side: .front,
+                                              options: Self.photoOptions()).image
+        #expect(try Self.looksLike(image, upright))
     }
 
     /// A landscape print with no faces and no writing: sky over a field, darker towards the top.
@@ -73,8 +73,9 @@ struct PhotoRotationTests {
     @Test(arguments: [CGImagePropertyOrientation.down, .left])
     func printWithNeitherFacesNorTextIsLeftAsFed(fed: CGImagePropertyOrientation) throws {
         let asFed = try Self.oriented(try Self.landscapePrint(), fed)
-        let page = try PageProcessor.process(asFed, resolution: 300, side: .front, options: Self.photoOptions())
-        #expect(try Self.looksLike(page.image, asFed))
+        let image = try PageProcessor.process(asFed, resolution: 300, side: .front,
+                                              options: Self.photoOptions()).image
+        #expect(try Self.looksLike(image, asFed))
     }
 
     /// A print of a handwritten-style note: dark lines of text on cream paper, no faces.
@@ -100,8 +101,8 @@ struct PhotoRotationTests {
 
     @Test func printWithTextButNoFacesIsRotatedByText() throws {
         let upright = try Self.notePrint()
-        let page = try PageProcessor.process(try Self.oriented(upright, .right), resolution: 300, side: .front,
-                                             options: Self.photoOptions())
-        #expect(try Self.looksLike(page.image, upright))
+        let image = try PageProcessor.process(try Self.oriented(upright, .right), resolution: 300, side: .front,
+                                              options: Self.photoOptions()).image
+        #expect(try Self.looksLike(image, upright))
     }
 }

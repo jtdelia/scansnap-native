@@ -264,6 +264,7 @@ struct ScannerSettingsView: View {
 struct ProfileEditor: View {
     @Bindable var model: AppModel
     @Binding var profile: ScanProfile
+    @State private var albums = PhotoKitLibrary.albumNames()
 
     var body: some View {
         Form {
@@ -275,7 +276,31 @@ struct ProfileEditor: View {
             }
 
             Section("Save To") {
-                LabeledContent("Folder") {
+                Picker("Save to", selection: $profile.saveTo) {
+                    ForEach(ScanProfile.SaveDestination.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                if profile.saveTo.savesToPhotos {
+                    LabeledContent("Album") {
+                        HStack {
+                            TextField("Album", text: $profile.photosAlbum, prompt: Text("None (library only)"))
+                                .labelsHidden()
+                            Menu {
+                                if albums.isEmpty {
+                                    Button("Show Albums…") {
+                                        Task { albums = await PhotoKitLibrary.requestAccessAndListAlbums() }
+                                    }
+                                }
+                                ForEach(albums, id: \.self) { album in
+                                    Button(album) { profile.photosAlbum = album }
+                                }
+                            } label: { Image(systemName: "rectangle.stack") }
+                                .menuIndicator(.hidden)
+                                .fixedSize()
+                                .help("Choose an album, or type a new name to create it on the first scan")
+                        }
+                    }
+                }
+                LabeledContent(profile.saveTo.savesToFolder ? "Folder" : "Folder if Photos fails") {
                     HStack {
                         Text(profile.folderURL.path(percentEncoded: false))
                             .lineLimit(1)
@@ -388,6 +413,7 @@ struct ProfileEditor: View {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
                 Toggle("Rotate photos upright using faces", isOn: $profile.rotateByFaces)
                 Toggle("Auto-enhance, keeping an untouched copy named “_original”", isOn: $profile.autoEnhance)
+                Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
             }
         }
         .formStyle(.grouped)
