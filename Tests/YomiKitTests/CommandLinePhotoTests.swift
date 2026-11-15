@@ -23,14 +23,21 @@ struct CommandLinePhotoTests {
         #expect(try #require(ScanProfile.commandLinePhoto(dpi: 300, folder: Self.folder)).saveTo == .folder)
     }
 
-    @Test(arguments: [(150, ScanProfile.Quality.normal), (200, .better), (300, .fine), (600, .excellent)])
+    @Test(arguments: [(300, ScanProfile.Quality.fine), (600, .excellent)])
     func resolutionComesFromTheDPIArgument(dpi: Int, quality: ScanProfile.Quality) throws {
         let profile = try #require(ScanProfile.commandLinePhoto(dpi: dpi, folder: Self.folder))
         #expect(profile.quality == quality)
         #expect(profile.quality.outputDPI(pageLengthInches: 6) == dpi)
     }
 
-    @Test func unsupportedResolutionGivesNoSettings() {
-        #expect(ScanProfile.commandLinePhoto(dpi: 450, folder: Self.folder) == nil)
+    @Test(arguments: [150, 200, 450])
+    func unsupportedResolutionGivesNoSettings(dpi: Int) {
+        #expect(ScanProfile.commandLinePhoto(dpi: dpi, folder: Self.folder) == nil)
+    }
+
+    @Test func unsupportedResolutionMessageNamesThePhotoResolutions() {
+        #expect(ScanProfile.commandLinePhotoResolutionMessage == "--photo scans at 300 or 600 dpi")
+        let accepted = (1...1200).filter { ScanProfile.commandLinePhoto(dpi: $0, folder: Self.folder) != nil }
+        #expect(accepted == [300, 600])
     }
 }

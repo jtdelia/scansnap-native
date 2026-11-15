@@ -365,10 +365,18 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
                     backCaptions: true)
     }
 
+    /// The resolutions the built-in photo scan profiles save at, which `yomi scan --photo` accepts.
+    private static let photoResolutions = [300, 600]
+
+    /// What `yomi scan --photo` says when given a resolution it does not accept.
+    public static let commandLinePhotoResolutionMessage =
+        "--photo scans at \(photoResolutions.map(String.init).joined(separator: " or ")) dpi"
+
     /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving only into `folder` at `dpi`,
-    /// or `nil` when no quality saves at that resolution.
+    /// or `nil` when `dpi` is not a photo resolution.
     public static func commandLinePhoto(dpi: Int, folder: URL) -> ScanProfile? {
-        guard var profile = builtInPhotoProfiles.first(where: { $0.name == "Photos – Keepers" }),
+        guard photoResolutions.contains(dpi),
+              var profile = builtInPhotoProfiles.first(where: { $0.name == "Photos – Keepers" }),
               let quality = Quality.allCases.first(where: { $0 != .automatic && $0.outputDPI(pageLengthInches: 0) == dpi })
         else { return nil }
         profile.folderPath = folder.path

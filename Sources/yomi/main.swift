@@ -199,7 +199,7 @@ do {
         let folder = URL(fileURLWithPath: arguments.first { $0.hasPrefix("/") } ?? "/tmp/yomi")
         let photoProfile = photo ? ScanProfile.commandLinePhoto(dpi: dpi, folder: folder) : nil
         if photo, photoProfile == nil {
-            print("--photo scans at 150, 200, 300 or 600 dpi")
+            print(ScanProfile.commandLinePhotoResolutionMessage)
             exit(1)
         }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
