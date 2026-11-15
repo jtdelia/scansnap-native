@@ -13,8 +13,9 @@ public enum SheetProcessor {
     public static func process(front rawFront: ScannedPage, back rawBack: ScannedPage,
                                profile: ScanProfile, colorProfile: CGColorSpace? = nil) throws -> Result {
         var result = Result()
-        var front = ColumnFlattener.flatten(rawFront)
-        var back = ColumnFlattener.flatten(rawBack)
+        // Column flattening scales each column to a paper-white taken from its content, which shifts a photo's colours.
+        var front = colorProfile == nil ? ColumnFlattener.flatten(rawFront) : rawFront
+        var back = colorProfile == nil ? ColumnFlattener.flatten(rawBack) : rawBack
 
         var backLooksLikePictureSide = false
         if profile.findPictureSide || profile.backCaptions, profile.sides == .duplex {

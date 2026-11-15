@@ -45,7 +45,7 @@ public enum PageProcessor {
     private static let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
 
     public static func process(_ page: ScannedPage, options: ProcessingOptions) throws -> ProcessedPage {
-        let corrected = options.flattenColumns ? ColumnFlattener.flatten(page) : page
+        let corrected = options.flattenColumns && options.colorProfile == nil ? ColumnFlattener.flatten(page) : page
         let source = try options.colorProfile.map { try corrected.cgImage(colorSpace: $0) } ?? corrected.cgImage()
         return try process(source, resolution: page.resolution, side: page.side, options: options)
     }

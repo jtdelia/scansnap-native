@@ -63,9 +63,7 @@ struct ColorCorrectionTests {
 
     @Test func correctionKeepsThePaperColor() throws {
         let srgb = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        var photo = Self.photoOptions(colorProfile: srgb)
-        photo.flattenColumns = false
-        let corrected = try PageProcessor.process(Self.syntheticPrint(), options: photo)
+        let corrected = try PageProcessor.process(Self.syntheticPrint(), options: Self.photoOptions(colorProfile: srgb))
         var document = Self.photoOptions(colorProfile: nil)
         document.flattenColumns = false
         document.documentTone = true
@@ -115,6 +113,16 @@ struct ColorCorrectionTests {
         let correction = ColorCorrection.forBatch(profile, searching: [try Self.profileFolder()])
         #expect(correction.notice == nil)
         #expect(try Self.savedColorSpace(profile, correction: correction) == CGColorSpace.displayP3 as String)
+    }
+
+    @Test func batchCorrectionKeepsThePaperColor() throws {
+        let srgb = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let sheet = try SheetProcessor.process(front: Self.syntheticPrint(), back: Self.syntheticPrint(),
+                                               profile: try Self.photoProfile(correctColor: true), colorProfile: srgb)
+        let page = try #require(sheet.pages.first)
+        let paper = try Self.p3Pixel(page.image, x: 0.1, y: 0.1)
+        #expect(paper[2] < 232)
+        #expect(paper[0] > 225)
     }
 
     @Test func batchWithoutAColorProfileSavesSRGBAndWarns() throws {
