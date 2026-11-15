@@ -264,6 +264,10 @@ struct BackCaptionTests {
         #expect(BackCaptionReader.handwrittenLines(lines) == ["MOM AND DAD", "Max the lab puppy", "JULY 4, 1962"])
     }
 
+    @Test func labPrintingIsTakenOutOfHandwritingOnTheSameLine() {
+        #expect(BackCaptionReader.handwrittenLines(["Grandma at Tahoe ORDER 0423 FRAME 17"]) == ["Grandma at Tahoe"])
+    }
+
     @Test(arguments: [["KODAK ROYAL PAPER"], ["FUJICOLOR CRYSTAL ARCHIVE PAPER"], ["Kodak Royal Paper", "Kodak"]])
     func brandPhrasePrintedOnceIsNotACaption(lines: [String]) {
         #expect(BackCaptionReader.handwrittenLines(lines) == [])

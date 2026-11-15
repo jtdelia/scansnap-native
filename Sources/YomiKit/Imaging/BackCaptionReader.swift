@@ -35,8 +35,24 @@ enum BackCaptionReader {
             let tokens = line.split(separator: " ").map(String.init)
             let kept = zip(tokens, brandPrinting(tokens, brand: brand)).filter { !$0.1 }.map(\.0)
             guard kept.contains(where: { !isCode($0) && !isLabWord($0) }) else { return nil }
-            return kept.joined(separator: " ")
+            return withoutLabNumbers(kept).joined(separator: " ")
         }
+    }
+
+    /// Drops a lab word together with the codes printed after it, such as "ORDER 0423" or "FRAME 17".
+    private static func withoutLabNumbers(_ tokens: [String]) -> [String] {
+        var kept: [String] = []
+        var i = tokens.startIndex
+        while i < tokens.endIndex {
+            let codes = tokens[(i + 1)...].prefix(while: isCode).count
+            if isLabWord(tokens[i]), codes > 0 {
+                i += 1 + codes
+            } else {
+                kept.append(tokens[i])
+                i += 1
+            }
+        }
+        return kept
     }
 
     /// For each token, whether it is a paper maker's name, a word repeated across the back, or part of a
