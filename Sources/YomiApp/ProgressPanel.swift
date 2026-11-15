@@ -1,5 +1,5 @@
 import AppKit
-import ScanSnapKit
+import YomiKit
 import SwiftUI
 
 /// Floating glass HUD shown while a scan runs; it never takes focus from the frontmost app.

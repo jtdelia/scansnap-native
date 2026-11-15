@@ -26,7 +26,7 @@ public struct Firmware: Sendable {
     public static let searchDirectories: [URL] = [
         URL(fileURLWithPath: "/Applications/ScanSnap/ScanSnap Manager.app/Contents/Resources/Firmware"),
         URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/ScanSnapNative/Firmware"),
+            .appendingPathComponent("Library/Application Support/Yomi/Firmware"),
     ]
 
     /// Newest firmware for `model` found in `directories`.

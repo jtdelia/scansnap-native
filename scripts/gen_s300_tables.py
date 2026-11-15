@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate ScanSnapKit/Protocol/S300Tables.swift from SANE epjitsu sources.
+"""Generate YomiKit/Protocol/S300Tables.swift from SANE epjitsu sources.
 
 Usage: gen_s300_tables.py <epjitsu.c> <epjitsu-cmd.h> <out.swift>
 """
