@@ -289,6 +289,26 @@ struct ProfileEditor: View {
                             .help("Open folder")
                     }
                 }
+                LabeledContent("Subfolders") {
+                    HStack {
+                        TextField("Subfolders", text: Binding(
+                            get: { profile.subfolderPattern.editorText },
+                            set: { profile.subfolderPattern = FileNamePattern(editorText: $0) }),
+                        prompt: Text("None"))
+                            .labelsHidden()
+                        Menu {
+                            Button("One folder per month") { profile.subfolderPattern = [.year, .text("/"), .month] }
+                            Section("Add") {
+                                ForEach(FileNamePattern.Piece.batchWide, id: \.self) { piece in
+                                    Button(piece.title) { profile.subfolderPattern.pieces.append(piece) }
+                                }
+                            }
+                        } label: { Image(systemName: "plus") }
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("Add a piece; type / to start a new folder level")
+                    }
+                }
                 Picker("After scanning", selection: $profile.afterScan) {
                     ForEach(ScanProfile.AfterScan.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
@@ -300,6 +320,16 @@ struct ProfileEditor: View {
                 }
                 if profile.fileFormat == .pdf {
                     Toggle("Make PDF searchable (recognize text)", isOn: $profile.searchablePDF)
+                }
+                if profile.fileFormat != .jpeg {
+                    Toggle("Split into several files", isOn: Binding(
+                        get: { profile.pagesPerFile != nil },
+                        set: { profile.pagesPerFile = $0 ? 1 : nil }))
+                    if let pagesPerFile = profile.pagesPerFile {
+                        Stepper("One file every \(pagesPerFile) page\(pagesPerFile == 1 ? "" : "s")",
+                                value: Binding(get: { pagesPerFile }, set: { profile.pagesPerFile = $0 }),
+                                in: 1...999)
+                    }
                 }
                 if profile.fileFormat != .multiPageTIFF {
                     Picker("Compression", selection: $profile.compression) {
@@ -386,7 +416,9 @@ private struct ProfileSummaryBar: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.summary)
                     .font(.callout.weight(.medium))
-                Text("\(profile.folderURL.lastPathComponent) / \(DocumentWriter.exampleFileName(for: profile))")
+                Text(([profile.folderURL.lastPathComponent]
+                    + DocumentWriter.exampleSubfolder(for: profile).split(separator: "/").map(String.init)
+                    + [DocumentWriter.exampleFileName(for: profile)]).joined(separator: " / "))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .truncationMode(.middle)

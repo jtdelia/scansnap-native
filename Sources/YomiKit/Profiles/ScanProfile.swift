@@ -131,7 +131,12 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var fileFormat: FileFormat
     public var searchablePDF: Bool
     public var compression: Compression
+    /// Saved pages per file for PDF and multi-page TIFF; `nil` keeps the whole batch in one file.
+    public var pagesPerFile: Int?
     public var namePattern: FileNamePattern
+    /// Folders, separated by `/`, that each batch goes into inside the scan profile's folder. Empty saves
+    /// straight into the folder.
+    public var subfolderPattern: FileNamePattern
     public var nextNumber: Int
     public var numberDigits: Int
     /// Interpret colour with the scanner's colour profile and save in Display P3.
@@ -152,7 +157,9 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         fileFormat: FileFormat = .pdf,
         searchablePDF: Bool = true,
         compression: Compression = .medium,
+        pagesPerFile: Int? = nil,
         namePattern: FileNamePattern = .dateAndTime,
+        subfolderPattern: FileNamePattern = [],
         nextNumber: Int = 1,
         numberDigits: Int = 3,
         correctColor: Bool = false
@@ -171,7 +178,9 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.fileFormat = fileFormat
         self.searchablePDF = searchablePDF
         self.compression = compression
+        self.pagesPerFile = pagesPerFile
         self.namePattern = namePattern
+        self.subfolderPattern = subfolderPattern
         self.nextNumber = nextNumber
         self.numberDigits = numberDigits
         self.correctColor = correctColor
@@ -197,8 +206,11 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         fileFormat = try container.decodeIfPresent(FileFormat.self, forKey: .fileFormat) ?? defaults.fileFormat
         searchablePDF = try container.decodeIfPresent(Bool.self, forKey: .searchablePDF) ?? defaults.searchablePDF
         compression = try container.decodeIfPresent(Compression.self, forKey: .compression) ?? defaults.compression
+        pagesPerFile = try container.decodeIfPresent(Int.self, forKey: .pagesPerFile) ?? defaults.pagesPerFile
         namePattern = try (try? container.decodeIfPresent(FileNamePattern.self, forKey: .namePattern))
             ?? Self.convertedNamePattern(decoder.container(keyedBy: LegacyKeys.self), fileFormat: fileFormat)
+        subfolderPattern = (try? container.decodeIfPresent(FileNamePattern.self, forKey: .subfolderPattern))
+            ?? defaults.subfolderPattern
         nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
         correctColor = try container.decodePhotoSetting(forKey: .correctColor, profileID: id)
