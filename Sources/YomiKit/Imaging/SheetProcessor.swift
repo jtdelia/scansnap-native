@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Turns one scanned sheet (both raw sides) into finished pages for a profile.
@@ -8,8 +9,9 @@ public enum SheetProcessor {
         public var notes: [String] = []
     }
 
+    /// `colorProfile` is the scanner's colour profile when the batch corrects colour.
     public static func process(front rawFront: ScannedPage, back rawBack: ScannedPage,
-                               profile: ScanProfile) throws -> Result {
+                               profile: ScanProfile, colorProfile: CGColorSpace? = nil) throws -> Result {
         var result = Result()
         var front = ColumnFlattener.flatten(rawFront)
         var back = ColumnFlattener.flatten(rawBack)
@@ -35,6 +37,7 @@ public enum SheetProcessor {
 
         var options = profile.processingOptions
         options.flattenColumns = false
+        options.colorProfile = colorProfile
         for side in keepBack ? [front, back] : [front] {
             let page = try PageProcessor.process(side, options: options)
             if page.isBlank {
