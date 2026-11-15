@@ -141,6 +141,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var numberDigits: Int
     /// Interpret colour with the scanner's colour profile and save in Display P3.
     public var correctColor: Bool
+    /// Rotate prints upright by faces, using text only when there are none. Replaces `autoRotate` when on.
+    public var rotateByFaces: Bool
 
     public init(
         id: UUID = UUID(),
@@ -162,7 +164,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         subfolderPattern: FileNamePattern = [],
         nextNumber: Int = 1,
         numberDigits: Int = 3,
-        correctColor: Bool = false
+        correctColor: Bool = false,
+        rotateByFaces: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -184,6 +187,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.nextNumber = nextNumber
         self.numberDigits = numberDigits
         self.correctColor = correctColor
+        self.rotateByFaces = rotateByFaces
     }
 
     /// Every key is optional, so scan profiles saved by any earlier version keep loading.
@@ -214,6 +218,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
         correctColor = try container.decodePhotoSetting(forKey: .correctColor, profileID: id)
+        rotateByFaces = try container.decodePhotoSetting(forKey: .rotateByFaces, profileID: id)
     }
 
     /// Keys that earlier versions saved and this version only reads.
@@ -250,6 +255,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         options.skipBlankPages = skipBlankPages
         options.reduceBleedThrough = reduceBleedThrough
         options.autoRotate = autoRotate
+        options.rotateByFaces = rotateByFaces
         options.colorMode = colorMode
         options.quality = quality
         options.documentTone = !(colorMode == .color && fileFormat == .jpeg)
@@ -269,11 +275,12 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         photoProfile(id: "BC554CB0-727B-446B-BC17-638B509F0832", name: "Photos – Keepers", quality: .excellent),
     ]
 
-    /// Auto-rotate stays off because text-based rotation misfires on photos.
+    /// Text-only auto-rotate stays off because it misfires on photos; face rotation takes its place.
     private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
         ScanProfile(id: UUID(uuidString: id)!, name: name, quality: quality, colorMode: .color, sides: .duplex,
                     skipBlankPages: true, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg,
-                    searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage, correctColor: true)
+                    searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage, correctColor: true,
+                    rotateByFaces: true)
     }
 
     /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving into `folder` at `dpi`,

@@ -386,6 +386,7 @@ struct ProfileEditor: View {
 
             Section("Photos") {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
+                Toggle("Rotate photos upright using faces", isOn: $profile.rotateByFaces)
             }
         }
         .formStyle(.grouped)
