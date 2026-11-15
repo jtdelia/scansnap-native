@@ -9,16 +9,21 @@ enum BackCaptionReader {
         case blank
         /// Writing that could not be read.
         case unreadable
+        case recognitionFailed(String)
         /// The handwritten lines, top to bottom.
         case caption(String)
     }
 
     /// Reads a back that the blank and show-through checks found ink on.
     static func read(_ back: CGImage) -> Reading {
-        let recognized = recognizedLines(back)
-        guard !recognized.isEmpty else { return .unreadable }
-        let lines = handwrittenLines(recognized)
-        return lines.isEmpty ? .blank : .caption(lines.joined(separator: "\n"))
+        do {
+            let recognized = try recognizedLines(back)
+            guard !recognized.isEmpty else { return .unreadable }
+            let lines = handwrittenLines(recognized)
+            return lines.isEmpty ? .blank : .caption(lines.joined(separator: "\n"))
+        } catch {
+            return .recognitionFailed(String(describing: error))
+        }
     }
 
     /// The lines left after dropping brand and lab printing. Brand printing is a paper maker's name, a whole
@@ -124,12 +129,12 @@ enum BackCaptionReader {
         line.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
     }
 
-    private static func recognizedLines(_ image: CGImage) -> [String] {
+    private static func recognizedLines(_ image: CGImage) throws -> [String] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.automaticallyDetectsLanguage = true
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        guard (try? handler.perform([request])) != nil else { return [] }
+        try handler.perform([request])
         return (request.results ?? [])
             .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
             .compactMap { $0.topCandidates(1).first?.string }

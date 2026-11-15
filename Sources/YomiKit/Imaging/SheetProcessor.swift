@@ -62,6 +62,8 @@ public enum SheetProcessor {
                 result.notes.append("back blank or only printing")
             case .unreadable:
                 result.notes.append("back has writing that could not be read")
+            case let .recognitionFailed(error):
+                result.notes.append("text recognition failed: \(error)")
             case let .caption(text):
                 caption = text
                 result.notes.append("back read as a caption of \(text.count) characters")

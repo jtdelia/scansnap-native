@@ -133,7 +133,7 @@ struct BackCaptionTests {
     @Test func handwrittenBackBecomesTheCaptionAndIsNotSaved() async throws {
         let sheet = try await Self.process(front: Self.picture, back: Side(text: Self.handwrittenNote))
         #expect(sheet.pages.map(\.source) == [.front])
-        let caption = try #require(sheet.pages.first?.caption)
+        let caption = try #require(sheet.pages.first?.caption, "\(sheet.notes)")
         #expect(caption.localizedCaseInsensitiveContains("Lake Tahoe"))
         #expect(caption.contains("1962"))
     }
@@ -155,12 +155,13 @@ struct BackCaptionTests {
     func writingInAnyDirectionIsRead(_ name: String, angle: CGFloat) async throws {
         let back = Side(text: Self.turned(Self.handwrittenNote, by: angle))
         let sheet = try await Self.process(front: Self.picture, back: back)
-        #expect(sheet.pages.first?.caption?.localizedCaseInsensitiveContains("Lake Tahoe") == true)
+        #expect(sheet.pages.first?.caption?.localizedCaseInsensitiveContains("Lake Tahoe") == true, "\(sheet.notes)")
     }
 
     @Test func onlyHandwritingFromABackWithPrintingBecomesTheCaption() async throws {
         let back = Side(text: Self.brandPrinting + Self.labPrinting + Self.handwrittenNote)
-        let caption = try #require(try await Self.process(front: Self.picture, back: back).pages.first?.caption)
+        let sheet = try await Self.process(front: Self.picture, back: back)
+        let caption = try #require(sheet.pages.first?.caption, "\(sheet.notes)")
         #expect(caption.localizedCaseInsensitiveContains("Lake Tahoe"))
         #expect(!caption.localizedCaseInsensitiveContains("KODAK"), "\(caption)")
         #expect(!caption.contains("0423"))
@@ -170,13 +171,14 @@ struct BackCaptionTests {
     @Test func printFedBackSideFirstGetsTheCaptionFromItsFront() async throws {
         let sheet = try await Self.process(front: Side(text: Self.handwrittenNote), back: Self.picture)
         #expect(sheet.pages.map(\.source) == [.back])
-        #expect(sheet.pages.first?.caption?.localizedCaseInsensitiveContains("Lake Tahoe") == true)
+        #expect(sheet.pages.first?.caption?.localizedCaseInsensitiveContains("Lake Tahoe") == true, "\(sheet.notes)")
     }
 
     @Test(arguments: ["1962", "7/4/62"])
     func handwrittenDateOnItsOwnBecomesTheCaption(date: String) async throws {
         let back = Side(text: [Self.handwriting(date, y: 260)] + Self.labPrinting)
-        #expect(try await Self.process(front: Self.picture, back: back).pages.first?.caption == date)
+        let sheet = try await Self.process(front: Self.picture, back: back)
+        #expect(sheet.pages.first?.caption == date, "\(sheet.notes)")
     }
 
     @Test(arguments: [("photo cropping", true, false), ("back captions", false, true), ("both", true, true)])
@@ -250,6 +252,21 @@ struct BackCaptionTests {
         #expect(sheet.blankSides == 0)
     }
 
+    @Test func textRecognitionFailureIsDistinctFromUnreadableWriting() async throws {
+        let reading = try await offTheTaskPool {
+            let context = try #require(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 0,
+                                               space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                               bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+            let image = try #require(context.makeImage())
+            return BackCaptionReader.read(image)
+        }
+        guard case let .recognitionFailed(error) = reading else {
+            Issue.record("Expected a text recognition failure, got \(reading)")
+            return
+        }
+        #expect(error.contains("com.apple.Vision"))
+    }
+
     // MARK: Recognized lines
 
     @Test(arguments: [
@@ -287,6 +304,6 @@ struct BackCaptionTests {
         let sheet = try await Self.process(front: Self.picture, back: Side(text: printing))
         #expect(sheet.pages.map(\.source) == [.front])
         #expect(sheet.pages.first?.caption == nil)
-        #expect(sheet.blankSides == 1)
+        #expect(sheet.blankSides == 1, "\(sheet.notes)")
     }
 }
