@@ -21,6 +21,6 @@ public enum AutoEnhancer {
         guard let output = context.createCGImage(image, from: source.extent, format: format, colorSpace: space)
         else { throw ImageWriterError.cannotCreateImage }
         return ProcessedPage(image: output, resolution: page.resolution, isBlank: page.isBlank, source: page.source,
-                             isColor: page.isColor)
+                             isColor: page.isColor, caption: page.caption)
     }
 }
