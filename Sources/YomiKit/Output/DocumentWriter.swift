@@ -48,6 +48,21 @@ public enum DocumentWriter {
         profile.fileFormat == .jpeg ? pages : 1
     }
 
+    /// Name of the first file a batch scanned at `date` would get, before clash suffixes.
+    public static func exampleFileName(for profile: ScanProfile, date: Date = Date()) -> String {
+        switch profile.fileFormat {
+        case .pdf:
+            return baseName(profile, date: date, number: profile.nextNumber) + ".pdf"
+        case .jpeg:
+            let base = profile.fileNaming == .dateTime
+                ? baseName(profile, date: date, number: 0) + "_001"
+                : baseName(profile, date: date, number: profile.nextNumber)
+            return base + ".jpg"
+        case .multiPageTIFF:
+            return baseName(profile, date: date, number: profile.nextNumber) + "." + profile.fileFormat.fileExtension
+        }
+    }
+
     static func baseName(_ profile: ScanProfile, date: Date, number: Int) -> String {
         switch profile.fileNaming {
         case .dateTime:

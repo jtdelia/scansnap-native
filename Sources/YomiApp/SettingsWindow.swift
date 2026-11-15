@@ -45,7 +45,7 @@ struct SettingsView: View {
                 Section("Profiles") {
                     ForEach(model.profiles) { profile in
                         HStack {
-                            Label(profile.name, systemImage: icon(for: profile))
+                            Label(profile.name, systemImage: profile.symbolName)
                             Spacer()
                             if profile.id == model.buttonProfile?.id {
                                 Image(systemName: "button.programmable")
@@ -88,7 +88,7 @@ struct SettingsView: View {
                 } label: {
                     Label("Scan Now", systemImage: "doc.viewfinder")
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.glass(.regular.tint(.accentColor).interactive()))
                 .disabled(!model.connection.isReady || model.jobState == .running)
                 .help("Scan with the selected profile")
             }
@@ -97,20 +97,23 @@ struct SettingsView: View {
     }
 
     private var sidebarActions: some View {
-        HStack(spacing: 6) {
-            Button { selection = .profile(model.addProfile().id) } label: { Image(systemName: "plus") }
-                .help("New profile")
-            Button {
-                if case let .profile(id) = selection, let profile = model.profiles.first(where: { $0.id == id }) {
-                    delete(profile)
-                }
-            } label: { Image(systemName: "minus") }
-                .help("Delete profile")
-                .disabled(selectedProfileID == nil || model.profiles.count <= 1)
-            Spacer()
+        GlassEffectContainer(spacing: 6) {
+            HStack(spacing: 6) {
+                Button { selection = .profile(model.addProfile().id) } label: { Image(systemName: "plus") }
+                    .help("New profile")
+                Button {
+                    if case let .profile(id) = selection, let profile = model.profiles.first(where: { $0.id == id }) {
+                        delete(profile)
+                    }
+                } label: { Image(systemName: "minus") }
+                    .help("Delete profile")
+                    .disabled(selectedProfileID == nil || model.profiles.count <= 1)
+                Spacer()
+            }
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.glass(.regular.interactive()))
         .controlSize(.small)
+        .dimmedWhenInactive()
         .padding(10)
     }
 
@@ -122,14 +125,30 @@ struct SettingsView: View {
         model.delete(profile)
         selection = .scanner
     }
+}
 
-    private func icon(for profile: ScanProfile) -> String {
-        switch profile.fileFormat {
+private extension ScanProfile {
+    var symbolName: String {
+        switch fileFormat {
         case .pdf: "doc.richtext"
         case .jpeg: "photo"
         case .multiPageTIFF: "doc.on.doc"
         }
     }
+}
+
+private struct DimmedWhenInactive: ViewModifier {
+    @Environment(\.appearsActive) private var appearsActive
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(appearsActive ? 1 : 0.6)
+            .animation(.easeOut(duration: 0.2), value: appearsActive)
+    }
+}
+
+private extension View {
+    func dimmedWhenInactive() -> some View { modifier(DimmedWhenInactive()) }
 }
 
 // MARK: - Scanner
@@ -147,6 +166,7 @@ struct ScannerSettingsView: View {
                         .foregroundStyle(model.connection.isReady ? Color.accentColor : .secondary)
                         .frame(width: 56, height: 56)
                         .glassEffect(.regular, in: .circle)
+                        .dimmedWhenInactive()
                     VStack(alignment: .leading, spacing: 2) {
                         Text("ScanSnap S1300").font(.headline)
                         Text(model.connection.title).font(.callout).foregroundStyle(.secondary)
@@ -261,7 +281,7 @@ struct ProfileEditor: View {
                     Stepper("Next number: \(profile.nextNumber)", value: $profile.nextNumber, in: 0...999_999)
                     Stepper("Digits: \(profile.numberDigits)", value: $profile.numberDigits, in: 1...8)
                 }
-                LabeledContent("Example", value: exampleFileName)
+                LabeledContent("Example", value: DocumentWriter.exampleFileName(for: profile))
             }
 
             Section("Scanning") {
@@ -284,21 +304,8 @@ struct ProfileEditor: View {
             }
         }
         .formStyle(.grouped)
+        .safeAreaInset(edge: .top) { ProfileSummaryBar(profile: profile) }
         .navigationTitle(profile.name)
-    }
-
-    private var exampleFileName: String {
-        let formatter = DateFormatter()
-        switch profile.fileNaming {
-        case .dateTime:
-            formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-            return formatter.string(from: Date())
-                + (profile.fileFormat == .jpeg ? "_001" : "") + "." + profile.fileFormat.fileExtension
-        case .prefixAndNumber:
-            let number = String(format: "%0\(profile.numberDigits)d", profile.nextNumber)
-            let prefix = profile.filePrefix.trimmingCharacters(in: .whitespaces)
-            return (prefix.isEmpty ? number : "\(prefix) \(number)") + "." + profile.fileFormat.fileExtension
-        }
     }
 
     private func chooseFolder() {
@@ -310,5 +317,33 @@ struct ProfileEditor: View {
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         profile.folderPath = url.path(percentEncoded: false)
+    }
+}
+
+private struct ProfileSummaryBar: View {
+    let profile: ScanProfile
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: profile.symbolName)
+                .font(.title2)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.summary)
+                    .font(.callout.weight(.medium))
+                Text("\(profile.folderURL.lastPathComponent) / \(DocumentWriter.exampleFileName(for: profile))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .truncationMode(.middle)
+            }
+            .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .dimmedWhenInactive()
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
     }
 }
