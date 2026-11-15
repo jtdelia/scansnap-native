@@ -1,4 +1,5 @@
 {
+  "Exclude": ["^\\.beads/(metadata\\.json|issues\\.jsonl)$"],
   "Disable": {
     "IndentSize": true
   }
