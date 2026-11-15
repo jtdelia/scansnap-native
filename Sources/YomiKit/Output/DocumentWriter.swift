@@ -8,6 +8,18 @@ public enum DocumentWriter {
     /// the caller.
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, date: Date = Date(),
                             progress: ((String) -> Void)? = nil) throws -> [URL] {
+        try saveFiles(pages, profile: profile, date: date, progress: progress).map(\.url)
+    }
+
+    /// A file `save` wrote, and its untouched `_original` copy when auto-enhance wrote one.
+    struct SavedFile {
+        let url: URL
+        let original: URL?
+    }
+
+    /// Like `save`, also telling which `_original` copy belongs to each file.
+    static func saveFiles(_ pages: [ProcessedPage], profile: ScanProfile, date: Date,
+                          progress: ((String) -> Void)?) throws -> [SavedFile] {
         guard !pages.isEmpty else { return [] }
         let folder = saveFolder(profile, date: date)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -22,14 +34,14 @@ public enum DocumentWriter {
             let url = uniqueURL(in: folder, base: names[file], ext: ext)
             guard profile.autoEnhance else {
                 try write(filePages, to: url, profile: profile, offset: offset, total: pages.count, progress: progress)
-                return url
+                return SavedFile(url: url, original: nil)
             }
             try write(filePages.map(AutoEnhancer.enhance), to: url, profile: profile, offset: offset,
                       total: pages.count, progress: progress)
             let original = uniqueURL(in: folder, base: url.deletingPathExtension().lastPathComponent + "_original",
                                      ext: ext)
             try write(filePages, to: original, profile: profile, offset: offset, total: pages.count, progress: progress)
-            return url
+            return SavedFile(url: url, original: original)
         }
     }
 

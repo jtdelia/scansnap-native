@@ -1,5 +1,7 @@
 import Foundation
+import ImageIO
 import Photos
+import UniformTypeIdentifiers
 import YomiKit
 
 /// Apple Photos through PhotoKit. Finding and creating albums needs full library access, not add-only.
@@ -8,7 +10,7 @@ struct PhotoKitLibrary: PhotoLibrary {
         var status = PHAuthorizationStatus.notDetermined
     }
 
-    func add(_ files: [URL], album: String) throws {
+    func add(_ photos: [PhotoImport], album: String) throws {
         guard Self.requestAccess() else { throw PhotoLibraryError.accessDenied }
         let library = PHPhotoLibrary.shared()
         var collection: PHAssetCollection?
@@ -30,14 +32,23 @@ struct PhotoKitLibrary: PhotoLibrary {
                 guard collection != nil else { throw PhotoLibraryError.albumNotCreated(album) }
             }
         }
+        let editError = ErrorBox()
         do {
             try library.performChangesAndWait {
-                let assets = files.compactMap { file in
+                let assets = photos.compactMap { photo -> PHObjectPlaceholder? in
                     let options = PHAssetResourceCreationOptions()
-                    options.originalFilename = file.lastPathComponent
+                    options.originalFilename = photo.name
                     let request = PHAssetCreationRequest.forAsset()
-                    request.addResource(with: .photo, fileURL: file, options: options)
-                    return request.placeholderForCreatedAsset
+                    request.addResource(with: .photo, fileURL: photo.original, options: options)
+                    guard let placeholder = request.placeholderForCreatedAsset else { return nil }
+                    if let edited = photo.edited {
+                        do {
+                            request.contentEditingOutput = try Self.enhancement(edited, for: placeholder)
+                        } catch {
+                            editError.error = error
+                        }
+                    }
+                    return placeholder
                 }
                 if let collection, let change = PHAssetCollectionChangeRequest(for: collection) {
                     change.addAssets(assets as NSArray)
@@ -46,6 +57,38 @@ struct PhotoKitLibrary: PhotoLibrary {
         } catch {
             throw Self.libraryError(error, otherwise: .failed("Photos couldn't add the photos (\(error.localizedDescription))."))
         }
+        if let error = editError.error {
+            throw PhotoLibraryError.failed("Photos added the photos without auto-enhance (\(error.localizedDescription)).")
+        }
+    }
+
+    private final class ErrorBox: @unchecked Sendable {
+        var error: Error?
+    }
+
+    /// Identifies Yomi's edits in Photos, which shows them as adjustments that Revert to Original removes.
+    private static let adjustmentFormat = "io.github.jtdelia.Yomi.auto-enhance"
+
+    /// A Photos edit for a newly created asset whose rendered image is the file at `edited`.
+    private static func enhancement(_ edited: URL, for placeholder: PHObjectPlaceholder) throws -> PHContentEditingOutput {
+        let output = PHContentEditingOutput(placeholderForCreatedAsset: placeholder)
+        output.adjustmentData = PHAdjustmentData(formatIdentifier: adjustmentFormat, formatVersion: "1",
+                                                 data: Data("CIImage.autoAdjustmentFilters".utf8))
+        let type = UTType(filenameExtension: edited.pathExtension)
+        if let type, output.supportedRenderedContentTypes.contains(type) {
+            try FileManager.default.copyItem(at: edited, to: output.renderedContentURL(for: type))
+            return output
+        }
+        guard let rendered = output.defaultRenderedContentType,
+              let source = CGImageSourceCreateWithURL(edited as CFURL, nil),
+              let destination = CGImageDestinationCreateWithURL(try output.renderedContentURL(for: rendered) as CFURL,
+                                                                rendered.identifier as CFString, 1, nil)
+        else { throw PhotoLibraryError.failed("Photos can't store the enhanced photo.") }
+        CGImageDestinationAddImageFromSource(destination, source, 0, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            throw PhotoLibraryError.failed("Photos can't store the enhanced photo.")
+        }
+        return output
     }
 
     /// Names of the user's albums, or none until Yomi has full access to Photos.
