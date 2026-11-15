@@ -187,6 +187,9 @@ struct ScannerSettingsView: View {
             }
 
             Section("General") {
+                Picker("Appearance", selection: $model.appearance) {
+                    ForEach(AppSettings.Appearance.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
                 Toggle("Open Yomi at login", isOn: Binding(
                     get: { model.launchAtLogin },
                     set: { model.setLaunchAtLogin($0) }))
