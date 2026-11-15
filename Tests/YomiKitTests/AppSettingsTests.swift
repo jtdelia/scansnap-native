@@ -86,6 +86,28 @@ struct AppSettingsTests {
         #expect(try AppSettings(json: saved.json()).profiles.first?.correctColor == true)
     }
 
+    @Test func saveDestinationFollowsTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { $0.saveTo == .folder && $0.photosAlbum.isEmpty })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Keepers"}]}"#
+            #expect(try AppSettings(json: Data(json.utf8)).profiles.first?.saveTo == .photos)
+        }
+        var profile = ScanProfile(name: "Prints")
+        profile.saveTo = .folderAndPhotos
+        profile.photosAlbum = "Family"
+        let saved = AppSettings(profiles: [profile], buttonProfileID: nil, addedPhotoProfiles: false)
+        let reloaded = try #require(try AppSettings(json: saved.json()).profiles.first)
+        #expect(reloaded.saveTo == .folderAndPhotos)
+        #expect(reloaded.photosAlbum == "Family")
+    }
+
+    @Test func builtInPhotoProfilesSaveToPhotosOnly() {
+        #expect(ScanProfile.builtInPhotoProfiles.allSatisfy { $0.saveTo == .photos })
+        #expect(ScanProfile.defaults.filter { !ScanProfile.builtInPhotoIDs.contains($0.id) }
+            .allSatisfy { $0.saveTo == .folder })
+    }
+
     @Test(arguments: [(AppSettings.Appearance.system, "system"), (.light, "light"), (.dark, "dark")])
     func appearanceIsSavedAndLoaded(appearance: AppSettings.Appearance, saved: String) throws {
         let json = try AppSettings(appearance: appearance).json()
