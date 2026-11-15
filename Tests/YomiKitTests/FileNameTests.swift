@@ -94,6 +94,14 @@ struct FileNameTests {
         #expect(try Self.save(1, profile, into: folder) == ["2026-11-14 21.42.05 (3).pdf"])
     }
 
+    @Test(arguments: [201, 230, 246])
+    func longPrefixNamesFilesAsBefore(prefixLength: Int) throws {
+        let prefix = String(repeating: "a", count: prefixLength)
+        let profile = try Self.v1Profile(named: "Scan to Yomi Folder", ["fileNaming": "prefixAndNumber",
+                                                                       "filePrefix": prefix, "nextNumber": 41])
+        #expect(try Self.save(1, profile) == ["\(prefix) 041.pdf"])
+    }
+
     // MARK: Name patterns
 
     @Test func patternPiecesAndText() throws {
@@ -114,12 +122,50 @@ struct FileNameTests {
         #expect(try Self.save(2, blank) == ["2026-11-14 21.42.05_001.jpg", "2026-11-14 21.42.05_002.jpg"])
     }
 
-    @Test func longNamesAreShortened() throws {
-        let ascii = ScanProfile(name: "Long", namePattern: [.text(String(repeating: "a", count: 300))])
-        #expect(try Self.save(1, ascii) == [String(repeating: "a", count: 200) + ".pdf"])
-        let accented = ScanProfile(name: "Long", namePattern: [.text(String(repeating: "é", count: 300))])
-        let name = try #require(try Self.save(1, accented).first)
-        #expect(name.precomposedStringWithCanonicalMapping == String(repeating: "é", count: 66) + ".pdf")
+    private static func named(_ length: Int, _ character: Character = "a",
+                              format: ScanProfile.FileFormat = .pdf) -> ScanProfile {
+        ScanProfile(name: "Long", fileFormat: format, namePattern: [.text(String(repeating: character, count: length))])
+    }
+
+    private static func a(_ count: Int) -> String { String(repeating: "a", count: count) }
+
+    @Test func namesThatFitTheFileSystemLimitAreKept() throws {
+        #expect(try Self.save(1, Self.named(251)) == [Self.a(251) + ".pdf"])
+    }
+
+    @Test func longNamesAreShortenedToTheFileSystemLimit() throws {
+        #expect(try Self.save(1, Self.named(252)) == [Self.a(251) + ".pdf"])
+        #expect(try Self.save(1, Self.named(300)) == [Self.a(251) + ".pdf"])
+        let name = try #require(try Self.save(1, Self.named(300, "é")).first)
+        #expect(name.precomposedStringWithCanonicalMapping == String(repeating: "é", count: 83) + ".pdf")
+    }
+
+    /// ImageIO writes through a temporary file whose name is 8 bytes longer, so image names stop at 247 bytes.
+    @Test(arguments: [ScanProfile.FileFormat.jpeg, .png, .tiff, .multiPageTIFF, .heic])
+    func imageNamesLeaveRoomForImageIOsTemporaryFile(format: ScanProfile.FileFormat) throws {
+        let ext = format.fileExtension
+        let fits = 247 - 1 - ext.utf8.count
+        #expect(try Self.save(1, Self.named(fits, format: format)) == [Self.a(fits) + ".\(ext)"])
+        #expect(try Self.save(1, Self.named(fits + 1, format: format)) == [Self.a(fits) + ".\(ext)"])
+    }
+
+    @Test func shorteningKeepsThePageAndClashNumbers() throws {
+        #expect(try Self.save(2, Self.named(300, format: .jpeg)) == [Self.a(239) + "_001.jpg", Self.a(239) + "_002.jpg"])
+        let folder = try Self.temporaryFolder()
+        #expect(try Self.save(1, Self.named(251), into: folder) == [Self.a(251) + ".pdf"])
+        #expect(try Self.save(1, Self.named(251), into: folder) == [Self.a(247) + " (2).pdf"])
+    }
+
+    @Test func shorteningKeepsTheOriginalSuffix() async throws {
+        let folder = try Self.temporaryFolder()
+        var profile = Self.named(243, format: .jpeg)
+        profile.folderPath = folder.path
+        profile.autoEnhance = true
+        _ = try await offTheTaskPool { [profile] in
+            try DocumentWriter.save([Self.page()], profile: profile, date: Self.date)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+            == [Self.a(234) + "_original.jpg", Self.a(243) + ".jpg"])
     }
 
     @Test func pageSuffixOnlyWhenSeveralFilesAndNoNumber() throws {

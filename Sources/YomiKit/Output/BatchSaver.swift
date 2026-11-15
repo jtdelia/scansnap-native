@@ -121,13 +121,13 @@ public enum BatchSaver {
         do {
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
             return try files.map { file in
-                let url = DocumentWriter.uniqueURL(in: folder, base: file.url.deletingPathExtension().lastPathComponent,
-                                                   ext: file.url.pathExtension)
+                let format = profile.fileFormat
+                let name = DocumentWriter.unclashedName(in: folder, file.name, format: format)
+                let url = folder.appendingPathComponent(DocumentWriter.fileName(name, format: format))
                 try fm.copyItem(at: file.url, to: url)
                 copied.append(url)
                 if let original = file.original {
-                    let base = url.deletingPathExtension().lastPathComponent + "_original"
-                    let originalURL = DocumentWriter.uniqueURL(in: folder, base: base, ext: original.pathExtension)
+                    let originalURL = DocumentWriter.originalURL(in: folder, for: name, format: format)
                     try fm.copyItem(at: original, to: originalURL)
                     copied.append(originalURL)
                 }
