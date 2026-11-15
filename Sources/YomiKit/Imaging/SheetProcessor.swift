@@ -3,7 +3,7 @@ import Foundation
 
 /// Turns one scanned sheet (both raw sides) into finished pages for a profile.
 public enum SheetProcessor {
-    public struct Result {
+    public struct Result: Sendable {
         public var pages: [ProcessedPage] = []
         public var blankSides: Int = 0
         public var notes: [String] = []
@@ -34,9 +34,10 @@ public enum SheetProcessor {
             }
         }
 
-        let keepBack = profile.sides == .duplex
+        let readsBack = profile.backCaptions && profile.sides == .duplex
+        let keepBack = profile.sides == .duplex && !readsBack
             && !(profile.skipBlankPages && (backFit?.isShowThroughOnly ?? false))
-        if profile.sides == .duplex, !keepBack { result.blankSides += 1 }
+        if profile.sides == .duplex, !keepBack, !readsBack { result.blankSides += 1 }
 
         if profile.reduceBleedThrough {
             let original = (front: front, back: back)
@@ -47,14 +48,42 @@ public enum SheetProcessor {
         var options = profile.processingOptions
         options.flattenColumns = false
         options.colorProfile = colorProfile
-        for side in keepBack ? [front, back] : [front] {
-            let page = try PageProcessor.process(side, options: options)
+        var caption: String?
+        if readsBack {
+            switch try readBack(back, options: options, isShowThroughOnly: backFit?.isShowThroughOnly ?? false) {
+            case .blank:
+                result.blankSides += 1
+                result.notes.append("back blank or only printing")
+            case .unreadable:
+                result.notes.append("back has writing that could not be read")
+            case let .caption(text):
+                caption = text
+                result.notes.append("back read as a caption of \(text.count) characters")
+            }
+        }
+        // A very pale print has too little ink for the blank check, so only its back is checked.
+        var pictureOptions = options
+        if profile.backCaptions { pictureOptions.skipBlankPages = false }
+        for (side, options) in [(front, pictureOptions)] + (keepBack ? [(back, options)] : []) {
+            var page = try PageProcessor.process(side, options: options)
             if page.isBlank {
                 result.blankSides += 1
             } else {
+                page.caption = caption
                 result.pages.append(page)
             }
         }
         return result
+    }
+
+    /// Reads a print's back for its caption. The back is checked with the same blank and show-through
+    /// detection documents use, whatever the scan profile's blank setting, since it is never saved.
+    private static func readBack(_ back: ScannedPage, options: ProcessingOptions,
+                                 isShowThroughOnly: Bool) throws -> BackCaptionReader.Reading {
+        guard !isShowThroughOnly else { return .blank }
+        var options = options
+        options.skipBlankPages = true
+        let page = try PageProcessor.process(back, options: options)
+        return page.isBlank ? .blank : BackCaptionReader.read(page.image)
     }
 }

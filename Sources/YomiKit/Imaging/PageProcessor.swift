@@ -35,6 +35,8 @@ public struct ProcessedPage: @unchecked Sendable {
     public let isBlank: Bool
     public let source: ScannedPage.Side
     public let isColor: Bool
+    /// Writing read from the back of the print, saved inside the photo's file.
+    public var caption: String?
 }
 
 public enum PageProcessor {
