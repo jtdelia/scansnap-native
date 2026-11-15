@@ -26,3 +26,12 @@ coverage/
 node_modules/
 __pycache__/
 .venv/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+
+# Scanner firmware is copyrighted by the vendor and must never be committed
+*.nal

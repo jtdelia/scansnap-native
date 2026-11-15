@@ -1,0 +1,3 @@
+[default.extend-words]
+# mach_timebase_info field
+numer = "numer"

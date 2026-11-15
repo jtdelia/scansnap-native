@@ -1,15 +1,19 @@
-# CI runs `make lint`, `make test`, and `make build`. Replace each placeholder
-# with this project's real commands, such as `npm run lint` or `swift test`.
+# CI runs `make lint`, `make test`, and `make build` on macOS.
 
-.PHONY: lint test build check
+.PHONY: lint test build app check
 
 lint:
-	@echo "lint: not configured yet. Edit the lint target in Makefile."
+	swift build -Xswiftc -warnings-as-errors
+	zsh -n scripts/build-app.sh
+	python3 -m py_compile scripts/gen_s300_tables.py
 
 test:
-	@echo "test: not configured yet. Edit the test target in Makefile."
+	swift test
 
 build:
-	@echo "build: not configured yet. Edit the build target in Makefile."
+	swift build -c release
+
+app:
+	scripts/build-app.sh
 
 check: lint test build
