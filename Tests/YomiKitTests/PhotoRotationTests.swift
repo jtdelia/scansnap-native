@@ -48,11 +48,16 @@ struct PhotoRotationTests {
         return Double(difference.reduce(0, +)) / Double(difference.count) < 8
     }
 
+    private static func processedPhoto(_ image: CGImage) async throws -> CGImage {
+        try await offTheTaskPool {
+            try PageProcessor.process(image, resolution: 300, side: .front, options: photoOptions()).image
+        }
+    }
+
     @Test(arguments: [CGImagePropertyOrientation.up, .down, .left, .right])
-    func printWithFacesComesOutUpright(fed: CGImagePropertyOrientation) throws {
+    func printWithFacesComesOutUpright(fed: CGImagePropertyOrientation) async throws {
         let upright = try Self.familyPrint()
-        let image = try PageProcessor.process(try Self.oriented(upright, fed), resolution: 300, side: .front,
-                                              options: Self.photoOptions()).image
+        let image = try await Self.processedPhoto(try Self.oriented(upright, fed))
         #expect(try Self.looksLike(image, upright))
     }
 
@@ -71,10 +76,9 @@ struct PhotoRotationTests {
     }
 
     @Test(arguments: [CGImagePropertyOrientation.down, .left])
-    func printWithNeitherFacesNorTextIsLeftAsFed(fed: CGImagePropertyOrientation) throws {
+    func printWithNeitherFacesNorTextIsLeftAsFed(fed: CGImagePropertyOrientation) async throws {
         let asFed = try Self.oriented(try Self.landscapePrint(), fed)
-        let image = try PageProcessor.process(asFed, resolution: 300, side: .front,
-                                              options: Self.photoOptions()).image
+        let image = try await Self.processedPhoto(asFed)
         #expect(try Self.looksLike(image, asFed))
     }
 
@@ -99,10 +103,9 @@ struct PhotoRotationTests {
         return try #require(context.makeImage())
     }
 
-    @Test func printWithTextButNoFacesIsRotatedByText() throws {
+    @Test func printWithTextButNoFacesIsRotatedByText() async throws {
         let upright = try Self.notePrint()
-        let image = try PageProcessor.process(try Self.oriented(upright, .right), resolution: 300, side: .front,
-                                              options: Self.photoOptions()).image
+        let image = try await Self.processedPhoto(try Self.oriented(upright, .right))
         #expect(try Self.looksLike(image, upright))
     }
 }

@@ -414,6 +414,8 @@ struct ProfileEditor: View {
                 Toggle("Rotate photos upright using faces", isOn: $profile.rotateByFaces)
                 Toggle("Auto-enhance, keeping an untouched copy named “_original”", isOn: $profile.autoEnhance)
                 Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
+                Toggle("Save writing on the back as the photo's caption, not the back itself",
+                       isOn: $profile.backCaptions)
             }
         }
         .formStyle(.grouped)
