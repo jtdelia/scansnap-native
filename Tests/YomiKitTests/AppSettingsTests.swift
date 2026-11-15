@@ -86,6 +86,20 @@ struct AppSettingsTests {
         #expect(try AppSettings(json: saved.json()).profiles.first?.correctColor == true)
     }
 
+    @Test func autoEnhanceFollowsTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { !$0.autoEnhance })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Quick"}]}"#
+            #expect(try AppSettings(json: Data(json.utf8)).profiles.first?.autoEnhance == true)
+        }
+        let saved = AppSettings(profiles: [ScanProfile(name: "Prints", autoEnhance: true)], buttonProfileID: nil,
+                                addedPhotoProfiles: false)
+        #expect(try AppSettings(json: saved.json()).profiles.first?.autoEnhance == true)
+        #expect(ScanProfile.builtInPhotoProfiles.allSatisfy { $0.autoEnhance })
+        #expect(ScanProfile.defaults.filter { !ScanProfile.builtInPhotoIDs.contains($0.id) }.allSatisfy { !$0.autoEnhance })
+    }
+
     @Test func findPictureSideFollowsTheFixedIDRule() throws {
         let settings = try AppSettings(json: Self.fixture("settings-v1"))
         #expect(settings.profiles.allSatisfy { !$0.findPictureSide })
