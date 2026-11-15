@@ -48,6 +48,10 @@ _Avoid_: Profile (on its own), ICC, ICM
 A paper photograph fed through the scanner.
 _Avoid_: Photo (for the paper), picture
 
+**Picture side**:
+The side of a print that carries the photograph; the other side is its back.
+_Avoid_: Front (when the print went in back-side-first)
+
 **Photo**:
 The saved picture made from a print, in a folder or in Apple Photos.
 _Avoid_: Image, scan
