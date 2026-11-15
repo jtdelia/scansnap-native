@@ -8,34 +8,66 @@ struct BatchSaverTests {
     private static let date = Calendar.current.date(
         from: DateComponents(year: 2026, month: 11, day: 14, hour: 21, minute: 42, second: 5))!
 
+    /// One photo as Photos was given it, read while the files still existed.
+    private struct AddedPhoto {
+        let name: String
+        let original: String
+        let originalData: Data?
+        let edited: String?
+        let editedData: Data?
+    }
+
     /// Records what it was asked to add, or fails with `error`.
     private final class FakePhotoLibrary: PhotoLibrary, @unchecked Sendable {
         let error: PhotoLibraryError?
-        private(set) var added: [(names: [String], album: String)] = []
+        private(set) var added: [(photos: [AddedPhoto], album: String)] = []
         private(set) var filesExisted = true
 
         init(failingWith error: PhotoLibraryError? = nil) { self.error = error }
 
-        func add(_ files: [URL], album: String) throws {
+        func add(_ photos: [PhotoImport], album: String) throws {
+            let files = photos.flatMap { [$0.original] + ($0.edited.map { [$0] } ?? []) }
             filesExisted = files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
             if let error { throw error }
-            added.append((files.map(\.lastPathComponent), album))
+            added.append((photos.map { photo in
+                AddedPhoto(name: photo.name, original: photo.original.lastPathComponent,
+                           originalData: try? Data(contentsOf: photo.original),
+                           edited: photo.edited?.lastPathComponent,
+                           editedData: photo.edited.flatMap { try? Data(contentsOf: $0) })
+            }, album))
         }
+
+        /// Names of the photos added in each call.
+        var names: [[String]] { added.map { $0.photos.map(\.name) } }
     }
 
+    /// A dull, low-contrast photo that auto-adjust brightens.
     private static func page() -> ProcessedPage {
-        let context = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+        let width = 40, height = 30
+        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(),
                                 bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
-        context.setFillColor(gray: 1, alpha: 1)
-        context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        for x in 0..<width {
+            let shade = 0.25 + 0.2 * Double(x) / Double(width)
+            context.setFillColor(red: shade, green: shade * 0.9, blue: shade * 0.8, alpha: 1)
+            context.fill(CGRect(x: x, y: 0, width: 1, height: height))
+        }
         return ProcessedPage(image: context.makeImage()!, resolution: 300, isBlank: false, source: .front, isColor: true)
     }
 
-    private static func profile(_ saveTo: ScanProfile.SaveDestination, album: String = "") throws -> ScanProfile {
+    private static func profile(_ saveTo: ScanProfile.SaveDestination, album: String = "",
+                                autoEnhance: Bool = false) throws -> ScanProfile {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("YomiBatchSaverTests-\(UUID())")
-        return ScanProfile(name: "Prints", folderPath: folder.path, saveTo: saveTo, photosAlbum: album,
-                           fileFormat: .jpeg, namePattern: .dateTimeAndPage)
+        var profile = ScanProfile(name: "Prints", folderPath: folder.path, saveTo: saveTo, photosAlbum: album,
+                                  fileFormat: .jpeg, namePattern: .dateTimeAndPage)
+        profile.autoEnhance = autoEnhance
+        return profile
+    }
+
+    /// Bytes of each file a folder save without auto-enhance writes for the test batch.
+    private static func unenhancedData() throws -> [Data] {
+        let profile = try profile(.folder)
+        return try save(profile, library: nil).files.map { try Data(contentsOf: $0) }
     }
 
     private static func save(_ profile: ScanProfile, library: FakePhotoLibrary?) throws -> SavedBatch {
@@ -52,7 +84,7 @@ struct BatchSaverTests {
         let profile = try Self.profile(.photos, album: "Family")
         let library = FakePhotoLibrary()
         let saved = try Self.save(profile, library: library)
-        #expect(library.added.map(\.names) == [Self.names])
+        #expect(library.names == [Self.names])
         #expect(library.added.map(\.album) == ["Family"])
         #expect(library.filesExisted)
         #expect(saved.files.isEmpty)
@@ -97,7 +129,7 @@ struct BatchSaverTests {
         let profile = try Self.profile(.folderAndPhotos)
         let library = FakePhotoLibrary()
         let saved = try Self.save(profile, library: library)
-        #expect(library.added.map(\.names) == [Self.names])
+        #expect(library.names == [Self.names])
         #expect(library.added.map(\.album) == [""])
         #expect(Self.folderContents(profile) == Self.names)
         #expect(saved.files.map(\.lastPathComponent) == Self.names)
@@ -113,6 +145,50 @@ struct BatchSaverTests {
         #expect(saved.place == profile.folderURL.lastPathComponent)
         #expect(saved.warning == "Couldn't save to Photos: Photos isn't available. "
             + "Saved to \(profile.folderURL.lastPathComponent) only.")
+    }
+
+    @Test func photosOnlyWithAutoEnhanceAddsEachUntouchedScanWithTheEnhancementAsItsEdit() throws {
+        let profile = try Self.profile(.photos, autoEnhance: true)
+        let library = FakePhotoLibrary()
+        let saved = try Self.save(profile, library: library)
+        let photos = try #require(library.added.first?.photos)
+        #expect(library.added.count == 1)
+        #expect(photos.map(\.name) == Self.names)
+        #expect(try photos.map(\.originalData) == Self.unenhancedData())
+        #expect(photos.allSatisfy { $0.editedData != nil && $0.editedData != $0.originalData })
+        #expect(library.filesExisted)
+        #expect(saved.files.isEmpty)
+        #expect(Self.folderContents(profile).isEmpty)
+    }
+
+    @Test func photosOnlyWithAutoEnhanceWhenPhotosFailsKeepsEachEnhancedPhotoAndItsOriginalInTheFolder() throws {
+        let profile = try Self.profile(.photos, autoEnhance: true)
+        let saved = try Self.save(profile, library: FakePhotoLibrary(failingWith: .accessDenied))
+        #expect(Self.folderContents(profile) == [
+            "2026-11-14 21.42.05_001.jpg", "2026-11-14 21.42.05_001_original.jpg",
+            "2026-11-14 21.42.05_002.jpg", "2026-11-14 21.42.05_002_original.jpg",
+        ])
+        #expect(saved.files.map(\.lastPathComponent) == Self.names)
+        let originals = try ["001", "002"].map {
+            try Data(contentsOf: profile.folderURL.appendingPathComponent("2026-11-14 21.42.05_\($0)_original.jpg"))
+        }
+        #expect(try originals == Self.unenhancedData())
+    }
+
+    @Test func folderAndPhotosWithAutoEnhanceKeepsBothFilesAndAddsOnePhotoPerPrint() throws {
+        let profile = try Self.profile(.folderAndPhotos, autoEnhance: true)
+        let library = FakePhotoLibrary()
+        let saved = try Self.save(profile, library: library)
+        let photos = try #require(library.added.first?.photos)
+        #expect(library.added.count == 1)
+        #expect(photos.map(\.name) == Self.names)
+        #expect(photos.map(\.original) == [
+            "2026-11-14 21.42.05_001_original.jpg", "2026-11-14 21.42.05_002_original.jpg",
+        ])
+        #expect(photos.map(\.edited) == Self.names)
+        #expect(Self.folderContents(profile).count == 4)
+        #expect(saved.files.map(\.lastPathComponent) == Self.names)
+        #expect(saved.warning == nil)
     }
 
     @Test func withoutAPhotoLibraryTheBatchGoesToTheFolder() throws {
