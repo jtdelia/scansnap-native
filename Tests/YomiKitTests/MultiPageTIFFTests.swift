@@ -74,7 +74,7 @@ struct MultiPageTIFFTests {
             try Self.page(width: 10, height: 10, seed: 2, color: true, resolution: 300),
         ]
         let profile = ScanProfile(name: "Test", folderPath: folder.path, fileFormat: .multiPageTIFF,
-                                  fileNaming: .prefixAndNumber, filePrefix: "Scan", nextNumber: 7)
+                                  namePattern: .nameAndNumber("Scan"), nextNumber: 7)
 
         let urls = try DocumentWriter.save(pages, profile: profile)
 

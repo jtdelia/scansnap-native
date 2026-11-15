@@ -276,11 +276,29 @@ struct ProfileEditor: View {
                         ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
                 }
-                Picker("File name", selection: $profile.fileNaming) {
-                    ForEach(ScanProfile.FileNaming.allCases, id: \.self) { Text($0.title).tag($0) }
+                LabeledContent("File name") {
+                    HStack {
+                        TextField("File name", text: Binding(
+                            get: { profile.namePattern.editorText },
+                            set: { profile.namePattern = FileNamePattern(editorText: $0) }))
+                            .labelsHidden()
+                        Menu {
+                            Section("Ready-made") {
+                                Button("Date and time") { profile.namePattern = .dateAndTime }
+                                Button("Name and number") { profile.namePattern = .nameAndNumber("Scan") }
+                            }
+                            Section("Add") {
+                                ForEach(FileNamePattern.Piece.all, id: \.self) { piece in
+                                    Button(piece.title) { profile.namePattern.pieces.append(piece) }
+                                }
+                            }
+                        } label: { Image(systemName: "plus") }
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("Add a piece or choose a ready-made name")
+                    }
                 }
-                if profile.fileNaming == .prefixAndNumber {
-                    TextField("Name", text: $profile.filePrefix)
+                if profile.namePattern.usesRunningNumber {
                     Stepper("Next number: \(profile.nextNumber)", value: $profile.nextNumber, in: 0...999_999)
                     Stepper("Digits: \(profile.numberDigits)", value: $profile.numberDigits, in: 1...8)
                 }
