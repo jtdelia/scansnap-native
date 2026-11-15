@@ -30,6 +30,7 @@ final class AppModel {
     let service = ScannerService()
     private var loaded = false
     private var addedPhotoProfiles = false
+    private var switchedPhotoProfilesToHEIC = false
 
     static let supportFolder = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Yomi", isDirectory: true)
@@ -41,6 +42,7 @@ final class AppModel {
 
     init() {
         load()
+        service.photoLibrary = PhotoKitLibrary()
         service.onConnectionChange = { connection in
             Task { @MainActor in self.connection = connection }
         }
@@ -91,9 +93,10 @@ final class AppModel {
                 jobState = .failed("Saved \(outcome.pages) page\(outcome.pages == 1 ? "" : "s"). \(warning)")
                 ProgressPanelController.shared.hide(after: 4)
             } else {
-                jobState = .finished(outcome.files.isEmpty
+                let place = outcome.place ?? profile.folderURL.lastPathComponent
+                jobState = .finished(outcome.pages == 0
                     ? "No pages saved\(skipped)."
-                    : "Saved \(outcome.pages) page\(outcome.pages == 1 ? "" : "s") to \(profile.folderURL.lastPathComponent)\(skipped).")
+                    : "Saved \(outcome.pages) page\(outcome.pages == 1 ? "" : "s") to \(place)\(skipped).")
                 ProgressPanelController.shared.hide(after: 1.6)
             }
             switch profile.afterScan {
@@ -164,6 +167,7 @@ final class AppModel {
             profiles = settings.profiles
             buttonProfileID = settings.buttonProfileID ?? settings.profiles.first?.id
             addedPhotoProfiles = settings.addedPhotoProfiles
+            switchedPhotoProfilesToHEIC = settings.switchedPhotoProfilesToHEIC
             appearance = settings.appearance
             loaded = true
             if settings != saved { save() }
@@ -172,6 +176,7 @@ final class AppModel {
             profiles = settings.profiles
             buttonProfileID = settings.buttonProfileID
             addedPhotoProfiles = settings.addedPhotoProfiles
+            switchedPhotoProfilesToHEIC = settings.switchedPhotoProfilesToHEIC
             loaded = true
         }
     }
@@ -179,7 +184,8 @@ final class AppModel {
     private func save() {
         guard loaded else { return }
         let settings = AppSettings(profiles: profiles, buttonProfileID: buttonProfileID,
-                                   addedPhotoProfiles: addedPhotoProfiles, appearance: appearance)
+                                   addedPhotoProfiles: addedPhotoProfiles,
+                                   switchedPhotoProfilesToHEIC: switchedPhotoProfilesToHEIC, appearance: appearance)
         do {
             try FileManager.default.createDirectory(at: Self.supportFolder, withIntermediateDirectories: true)
             try settings.json().write(to: Self.settingsURL, options: .atomic)

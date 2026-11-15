@@ -26,6 +26,7 @@ struct AppSettingsTests {
         #expect(settings.profiles == Self.v1Profiles)
         #expect(settings.buttonProfileID == UUID(uuidString: "0A9CA2A9-EEB9-4098-A191-1A0CA292BF17"))
         #expect(settings.addedPhotoProfiles == false)
+        #expect(settings.switchedPhotoProfilesToHEIC == false)
         #expect(settings.appearance == .system)
     }
 
@@ -100,6 +101,56 @@ struct AppSettingsTests {
         #expect(try AppSettings(json: saved.json()).profiles.first?.cropToPrint == true)
     }
 
+    @Test func saveDestinationFollowsTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { $0.saveTo == .folder && $0.photosAlbum.isEmpty })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Keepers"}]}"#
+            #expect(try AppSettings(json: Data(json.utf8)).profiles.first?.saveTo == .photos)
+        }
+        var profile = ScanProfile(name: "Prints")
+        profile.saveTo = .folderAndPhotos
+        profile.photosAlbum = "Family"
+        let saved = AppSettings(profiles: [profile], buttonProfileID: nil, addedPhotoProfiles: false)
+        let reloaded = try #require(try AppSettings(json: saved.json()).profiles.first)
+        #expect(reloaded.saveTo == .folderAndPhotos)
+        #expect(reloaded.photosAlbum == "Family")
+    }
+
+    @Test func builtInPhotoProfilesSaveToPhotosOnly() {
+        #expect(ScanProfile.builtInPhotoProfiles.allSatisfy { $0.saveTo == .photos })
+        #expect(ScanProfile.defaults.filter { !ScanProfile.builtInPhotoIDs.contains($0.id) }
+            .allSatisfy { $0.saveTo == .folder })
+    }
+
+    @Test func autoEnhanceFollowsTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { !$0.autoEnhance })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Quick"}]}"#
+            #expect(try AppSettings(json: Data(json.utf8)).profiles.first?.autoEnhance == true)
+        }
+        let saved = AppSettings(profiles: [ScanProfile(name: "Prints", autoEnhance: true)], buttonProfileID: nil,
+                                addedPhotoProfiles: false)
+        #expect(try AppSettings(json: saved.json()).profiles.first?.autoEnhance == true)
+        #expect(ScanProfile.builtInPhotoProfiles.allSatisfy { $0.autoEnhance })
+        #expect(ScanProfile.defaults.filter { !ScanProfile.builtInPhotoIDs.contains($0.id) }.allSatisfy { !$0.autoEnhance })
+    }
+
+    @Test func findPictureSideFollowsTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { !$0.findPictureSide })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Keepers"}]}"#
+            #expect(try AppSettings(json: Data(json.utf8)).profiles.first?.findPictureSide == true)
+        }
+        #expect(ScanProfile.builtInPhotoProfiles.allSatisfy { $0.findPictureSide })
+        var profile = ScanProfile(name: "Prints")
+        profile.findPictureSide = true
+        let saved = AppSettings(profiles: [profile], buttonProfileID: nil, addedPhotoProfiles: false)
+        #expect(try AppSettings(json: saved.json()).profiles.first?.findPictureSide == true)
+    }
+
     @Test(arguments: [(AppSettings.Appearance.system, "system"), (.light, "light"), (.dark, "dark")])
     func appearanceIsSavedAndLoaded(appearance: AppSettings.Appearance, saved: String) throws {
         let json = try AppSettings(appearance: appearance).json()
@@ -141,6 +192,64 @@ struct AppSettingsTests {
         settings.profiles.removeAll { $0.name == "Photos – Keepers" }
         let reloaded = try AppSettings(json: settings.json()).upgraded()
         #expect(reloaded.profiles == settings.profiles)
+    }
+
+    // MARK: HEIC for photo scan profiles
+
+    /// Settings saved after the photo scan profiles were added and before HEIC existed.
+    private static func savedWithJPEGPhotoProfiles() throws -> AppSettings {
+        var settings = try AppSettings(json: fixture("settings-v1")).upgraded()
+        settings.switchedPhotoProfilesToHEIC = false
+        for index in settings.profiles.indices where ScanProfile.builtInPhotoIDs.contains(settings.profiles[index].id) {
+            settings.profiles[index].fileFormat = .jpeg
+        }
+        settings.profiles.append(ScanProfile(name: "My prints", fileFormat: .jpeg))
+        return try AppSettings(json: settings.json())
+    }
+
+    @Test func upgradeSwitchesJPEGPhotoProfilesToHEICAndLeavesOthersAlone() throws {
+        let saved = try Self.savedWithJPEGPhotoProfiles()
+        #expect(!saved.switchedPhotoProfilesToHEIC)
+
+        let upgraded = saved.upgraded()
+
+        for (before, after) in zip(saved.profiles, upgraded.profiles) {
+            var expected = before
+            if ScanProfile.builtInPhotoIDs.contains(before.id) { expected.fileFormat = .heic }
+            #expect(after == expected, "\(before.name)")
+        }
+        #expect(upgraded.profiles.count == saved.profiles.count)
+        #expect(upgraded.profiles.first { $0.name == "Photos" }?.fileFormat == .jpeg)
+        #expect(upgraded.profiles.first { $0.name == "My prints" }?.fileFormat == .jpeg)
+        #expect(upgraded.switchedPhotoProfilesToHEIC)
+    }
+
+    @Test func heicSwitchRunsOnlyOnce() throws {
+        var settings = try Self.savedWithJPEGPhotoProfiles().upgraded()
+        for index in settings.profiles.indices where ScanProfile.builtInPhotoIDs.contains(settings.profiles[index].id) {
+            settings.profiles[index].fileFormat = .jpeg
+        }
+        let reloaded = try AppSettings(json: settings.json()).upgraded()
+        #expect(reloaded == settings)
+    }
+
+    @Test func photoProfileTheUserMovedOffJPEGKeepsItsFormat() throws {
+        var saved = try Self.savedWithJPEGPhotoProfiles()
+        let keepers = try #require(saved.profiles.firstIndex { $0.name == "Photos – Keepers" })
+        saved.profiles[keepers].fileFormat = .png
+        let upgraded = saved.upgraded()
+        #expect(upgraded.profiles[keepers].fileFormat == .png)
+        #expect(upgraded.profiles.first { $0.name == "Photos – Quick" }?.fileFormat == .heic)
+    }
+
+    @Test func newInstallSavesPhotosAsHEICAndDocumentsAsBefore() {
+        let settings = AppSettings.newInstall
+        #expect(settings.switchedPhotoProfilesToHEIC)
+        #expect(settings.upgraded() == settings)
+        for profile in settings.profiles {
+            #expect(profile.fileFormat == (ScanProfile.builtInPhotoIDs.contains(profile.id) ? .heic : .pdf),
+                    "\(profile.name)")
+        }
     }
 
     @Test func emptySettingsDecode() throws {

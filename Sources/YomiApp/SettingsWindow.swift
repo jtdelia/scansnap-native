@@ -132,7 +132,7 @@ private extension ScanProfile {
         if correctColor { return "photo" }
         return switch fileFormat {
         case .pdf: "doc.richtext"
-        case .jpeg: "photo"
+        case .jpeg, .png, .tiff, .heic: "photo"
         case .multiPageTIFF: "doc.on.doc"
         }
     }
@@ -264,6 +264,7 @@ struct ScannerSettingsView: View {
 struct ProfileEditor: View {
     @Bindable var model: AppModel
     @Binding var profile: ScanProfile
+    @State private var albums = PhotoKitLibrary.albumNames()
 
     var body: some View {
         Form {
@@ -275,7 +276,31 @@ struct ProfileEditor: View {
             }
 
             Section("Save To") {
-                LabeledContent("Folder") {
+                Picker("Save to", selection: $profile.saveTo) {
+                    ForEach(ScanProfile.SaveDestination.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                if profile.saveTo.savesToPhotos {
+                    LabeledContent("Album") {
+                        HStack {
+                            TextField("Album", text: $profile.photosAlbum, prompt: Text("None (library only)"))
+                                .labelsHidden()
+                            Menu {
+                                if albums.isEmpty {
+                                    Button("Show Albums…") {
+                                        Task { albums = await PhotoKitLibrary.requestAccessAndListAlbums() }
+                                    }
+                                }
+                                ForEach(albums, id: \.self) { album in
+                                    Button(album) { profile.photosAlbum = album }
+                                }
+                            } label: { Image(systemName: "rectangle.stack") }
+                                .menuIndicator(.hidden)
+                                .fixedSize()
+                                .help("Choose an album, or type a new name to create it on the first scan")
+                        }
+                    }
+                }
+                LabeledContent(profile.saveTo.savesToFolder ? "Folder" : "Folder if Photos fails") {
                     HStack {
                         Text(profile.folderURL.path(percentEncoded: false))
                             .lineLimit(1)
@@ -321,7 +346,7 @@ struct ProfileEditor: View {
                 if profile.fileFormat == .pdf {
                     Toggle("Make PDF searchable (recognize text)", isOn: $profile.searchablePDF)
                 }
-                if profile.fileFormat != .jpeg {
+                if !profile.fileFormat.savesPagesSeparately {
                     Toggle("Split into several files", isOn: Binding(
                         get: { profile.pagesPerFile != nil },
                         set: { profile.pagesPerFile = $0 ? 1 : nil }))
@@ -331,7 +356,7 @@ struct ProfileEditor: View {
                                 in: 1...999)
                     }
                 }
-                if profile.fileFormat != .multiPageTIFF {
+                if profile.fileFormat.usesCompression {
                     Picker("Compression", selection: $profile.compression) {
                         ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
@@ -387,6 +412,8 @@ struct ProfileEditor: View {
             Section("Photos") {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
                 Toggle("Crop to the print's edges instead of paper size", isOn: $profile.cropToPrint)
+                Toggle("Auto-enhance, keeping an untouched copy named “_original”", isOn: $profile.autoEnhance)
+                Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
             }
         }
         .formStyle(.grouped)
