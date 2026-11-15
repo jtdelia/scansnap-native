@@ -386,6 +386,7 @@ struct ProfileEditor: View {
 
             Section("Photos") {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
+                Toggle("Auto-enhance, keeping an untouched copy named “_original”", isOn: $profile.autoEnhance)
             }
         }
         .formStyle(.grouped)
