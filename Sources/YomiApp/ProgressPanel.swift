@@ -134,8 +134,10 @@ struct ScanProgressView: View {
 
     private var footer: some View {
         HStack {
-            if let folder = model.activeProfile?.folderURL.lastPathComponent {
+            if let folder = model.batchFolder {
                 Label(folder, systemImage: "folder").font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer()
             if model.jobState == .running {

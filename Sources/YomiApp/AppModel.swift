@@ -25,9 +25,13 @@ final class AppModel {
     var progress: ScanProgress?
     var jobState: JobState = .idle
     var activeProfile: ScanProfile?
+    /// The folder the running batch saves in, or the last batch went to, as the progress panel names it.
+    var batchFolder: String?
     var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     let service = ScannerService()
+    /// Where each scan profile's last batch was saved, while the app runs.
+    private var lastFolders: [UUID: URL] = [:]
     private var loaded = false
     private var addedPhotoProfiles = false
     private var switchedPhotoProfilesToHEIC = false
@@ -68,6 +72,7 @@ final class AppModel {
             return
         }
         activeProfile = profile
+        batchFolder = profile.destination.savesToFolder ? DocumentWriter.folderName(for: profile) : nil
         progress = ScanProgress(phase: "Preparing…", sheets: 0, pages: 0, blankPagesSkipped: 0, thumbnail: nil)
         jobState = .running
         ProgressPanelController.shared.show(model: self)
@@ -81,12 +86,34 @@ final class AppModel {
         service.cancelScan()
     }
 
+    /// `folder` as the scan profile's folder name and the subfolders under it, or its full path when it is elsewhere.
+    private static func name(of folder: URL, in profile: ScanProfile) -> String {
+        let top = profile.folderURL.standardizedFileURL.pathComponents
+        let parts = folder.standardizedFileURL.pathComponents
+        guard parts.starts(with: top) else { return folder.path(percentEncoded: false) }
+        return ([profile.folderURL.lastPathComponent] + parts.dropFirst(top.count)).joined(separator: "/")
+    }
+
+    /// Opens the folder the scan profile's last batch went to, else the subfolder a batch scanned now goes into,
+    /// else the scan profile's folder.
+    func openFolder(of profile: ScanProfile) {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: profile.folderURL, withIntermediateDirectories: true)
+        let folder = [lastFolders[profile.id], DocumentWriter.saveFolder(for: profile)].compactMap(\.self)
+            .first { fm.fileExists(atPath: $0.path) }
+        NSWorkspace.shared.open(folder ?? profile.folderURL)
+    }
+
     private func finish(profile: ScanProfile, result: Result<ScanOutcome, Error>) {
         switch result {
         case let .success(outcome):
             let numbersUsed = DocumentWriter.numbersUsed(pages: outcome.pages, profile: profile)
             if let index = profiles.firstIndex(where: { $0.id == profile.id }), numbersUsed > 0 {
                 profiles[index].nextNumber += numbersUsed
+            }
+            if let folder = outcome.folder {
+                batchFolder = Self.name(of: folder, in: profile)
+                lastFolders[profile.id] = folder
             }
             let summary = outcome.summary(defaultPlace: profile.folderURL.lastPathComponent)
             if summary.isProblem {

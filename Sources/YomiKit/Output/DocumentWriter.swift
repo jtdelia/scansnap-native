@@ -30,7 +30,7 @@ public enum DocumentWriter {
     static func saveFiles(_ pages: [ProcessedPage], profile: ScanProfile, date: Date,
                           progress: ((String) -> Void)?) throws -> [SavedFile] {
         guard !pages.isEmpty else { return [] }
-        let folder = saveFolder(profile, date: date)
+        let folder = saveFolder(for: profile, date: date)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let starts = firstPages(pages: pages.count, profile: profile)
         let names = baseNames(profile, firstPages: starts, date: date)
@@ -104,8 +104,13 @@ public enum DocumentWriter {
     }
 
     /// The folder a batch scanned at `date` is saved in.
-    static func saveFolder(_ profile: ScanProfile, date: Date) -> URL {
+    public static func saveFolder(for profile: ScanProfile, date: Date = Date()) -> URL {
         subfolders(profile, date: date).reduce(profile.folderURL) { $0.appendingPathComponent($1, isDirectory: true) }
+    }
+
+    /// The scan profile's folder name and the subfolders a batch scanned at `date` goes into, such as `Yomi/2026/11`.
+    public static func folderName(for profile: ScanProfile, date: Date = Date()) -> String {
+        ([profile.folderURL.lastPathComponent] + subfolders(profile, date: date)).joined(separator: "/")
     }
 
     /// Folder levels from the subfolder pattern. Only typed `/` starts a new level, and levels that are empty,

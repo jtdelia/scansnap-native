@@ -46,6 +46,8 @@ public struct SavedBatch: Sendable {
     public let warning: String?
     /// Where the batch went, for "Saved 3 pages to …".
     public let place: String
+    /// The folder holding `files`, or `nil` when the batch went only to Photos.
+    public var folder: URL? = nil
     /// Something the batch saved without, that is still worth saying, such as Photos dropping an enhancement.
     public var notice: String? = nil
 }
@@ -54,10 +56,11 @@ public struct SavedBatch: Sendable {
 public enum BatchSaver {
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
                             date: Date = Date(), progress: ((String) -> Void)? = nil) throws -> SavedBatch {
-        let folder = profile.folderURL.lastPathComponent
+        let folder = DocumentWriter.folderName(for: profile, date: date)
+        let folderURL = DocumentWriter.saveFolder(for: profile, date: date)
         guard profile.destination.savesToPhotos else {
             let files = try DocumentWriter.save(pages, profile: profile, date: date, progress: progress)
-            return SavedBatch(files: files, warning: nil, place: folder)
+            return SavedBatch(files: files, warning: nil, place: folder, folder: folderURL)
         }
         if profile.destination.savesToFolder {
             let saved = try DocumentWriter.saveFiles(pages, profile: profile, date: date, progress: progress)
@@ -65,10 +68,10 @@ public enum BatchSaver {
             switch addToPhotos(saved, profile: profile, library: photoLibrary) {
             case let .failure(error):
                 return SavedBatch(files: files, warning: "Couldn't save to Photos: \(error) Saved to \(folder) only.",
-                                  place: folder)
+                                  place: folder, folder: folderURL)
             case let .success(unenhanced):
                 return SavedBatch(files: files, warning: nil, place: "\(folder) and \(photosPlace(profile))",
-                                  notice: enhancementNotice(unenhanced))
+                                  folder: folderURL, notice: enhancementNotice(unenhanced))
             }
         }
         let staging = FileManager.default.temporaryDirectory
@@ -83,12 +86,13 @@ public enum BatchSaver {
             do {
                 let files = try copy(saved, into: profile, date: date)
                 try? FileManager.default.removeItem(at: staging)
-                return SavedBatch(files: files, warning: "\(reason) Saved to \(folder) instead.", place: folder)
+                return SavedBatch(files: files, warning: "\(reason) Saved to \(folder) instead.", place: folder,
+                                  folder: folderURL)
             } catch {
                 return SavedBatch(files: saved.map(\.url),
                                   warning: "\(reason) Couldn't save to \(folder) either (\(error.localizedDescription)). "
                                       + "The batch is in \(staging.path), which macOS empties after a few days.",
-                                  place: staging.path)
+                                  place: staging.path, folder: staging)
             }
         }
         try? FileManager.default.removeItem(at: staging)
@@ -116,7 +120,7 @@ public enum BatchSaver {
     /// that clash. When a copy fails, the copies already made are removed and the staged files are left alone.
     private static func copy(_ files: [DocumentWriter.SavedFile], into profile: ScanProfile, date: Date) throws -> [URL] {
         let fm = FileManager.default
-        let folder = DocumentWriter.saveFolder(profile, date: date)
+        let folder = DocumentWriter.saveFolder(for: profile, date: date)
         var copied: [URL] = []
         do {
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)

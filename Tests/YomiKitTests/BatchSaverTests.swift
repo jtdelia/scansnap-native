@@ -122,6 +122,22 @@ struct BatchSaverTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == Self.names)
         #expect(saved.files == Self.names.map { folder.appendingPathComponent($0) })
         #expect(saved.warning?.contains("The album “Family” couldn't be created.") == true)
+        #expect(saved.warning?.hasSuffix("Saved to \(profile.folderURL.lastPathComponent)/2026 instead.") == true)
+        #expect(saved.place == "\(profile.folderURL.lastPathComponent)/2026")
+        #expect(saved.folder == folder)
+    }
+
+    @Test func subfolderBatchNamesTheSubfolderItWentTo() throws {
+        var profile = try Self.profile(.folderAndPhotos)
+        profile.subfolderPattern = [.year, .text("/"), .month]
+        let saved = try Self.save(profile, library: FakePhotoLibrary())
+        #expect(saved.place == "\(profile.folderURL.lastPathComponent)/2026/11 and Photos")
+        #expect(saved.folder == profile.folderURL.appendingPathComponent("2026/11", isDirectory: true))
+        #expect(DocumentWriter.saveFolder(for: profile, date: Self.date) == saved.folder)
+    }
+
+    @Test func photosOnlyBatchHasNoFolder() throws {
+        #expect(try Self.save(Self.profile(.photos), library: FakePhotoLibrary()).folder == nil)
     }
 
     @Test func photosOnlyWhenTheFolderCannotBeWrittenEitherSaysWhereTheBatchIs() throws {

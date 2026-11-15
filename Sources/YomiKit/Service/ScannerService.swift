@@ -47,6 +47,8 @@ public struct ScanOutcome: Sendable {
     public let blankPagesSkipped: Int
     /// Where the batch was saved, such as the folder's name or "Photos".
     public var place: String? = nil
+    /// The folder holding `files`, or `nil` when the batch went only to Photos.
+    public var folder: URL? = nil
     /// Set when the batch stopped early or was not saved where the scan profile asked; pages are still saved.
     public var warning: String? = nil
     /// Something the batch was saved without, such as colour correction, that does not make it a failure.
@@ -350,7 +352,7 @@ public final class ScannerService: @unchecked Sendable {
         if let warning = saved.warning { ScanLog.write("  \(warning)") }
         if let notice = saved.notice { ScanLog.write("  \(notice)") }
         var outcome = ScanOutcome(files: saved.files, sheets: sheets, pages: pages.count, blankPagesSkipped: skipped,
-                                  place: saved.place)
+                                  place: saved.place, folder: saved.folder)
         let stopWarning = stopReason.map { stopReason in
             (stopReason as? ScanError)?.isCancellation == true
                 ? "Stopped. Pages scanned so far were saved."

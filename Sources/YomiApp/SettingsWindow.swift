@@ -314,10 +314,7 @@ struct ProfileEditor: View {
                             .truncationMode(.middle)
                             .foregroundStyle(.secondary)
                         Button("Choose…", action: chooseFolder)
-                        Button {
-                            try? FileManager.default.createDirectory(at: profile.folderURL, withIntermediateDirectories: true)
-                            NSWorkspace.shared.open(profile.folderURL)
-                        } label: { Image(systemName: "arrow.up.forward.app") }
+                        Button { model.openFolder(of: profile) } label: { Image(systemName: "arrow.up.forward.app") }
                             .help("Open folder")
                     }
                 }
