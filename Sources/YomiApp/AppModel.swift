@@ -6,11 +6,6 @@ import ServiceManagement
 @MainActor
 @Observable
 final class AppModel {
-    struct Settings: Codable {
-        var profiles: [ScanProfile]
-        var buttonProfileID: UUID?
-    }
-
     enum JobState: Equatable {
         case idle
         case running
@@ -28,6 +23,7 @@ final class AppModel {
 
     let service = ScannerService()
     private var loaded = false
+    private var addedPhotoProfiles = false
 
     static let supportFolder = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Yomi", isDirectory: true)
@@ -153,9 +149,10 @@ final class AppModel {
     private func load() {
         defer { loaded = true }
         if let data = try? Data(contentsOf: Self.settingsURL),
-           let settings = try? JSONDecoder().decode(Settings.self, from: data), !settings.profiles.isEmpty {
+           let settings = try? AppSettings(json: data), !settings.profiles.isEmpty {
             profiles = settings.profiles
             buttonProfileID = settings.buttonProfileID ?? settings.profiles.first?.id
+            addedPhotoProfiles = settings.addedPhotoProfiles
         } else {
             profiles = ScanProfile.defaults
             buttonProfileID = profiles.first?.id
@@ -164,12 +161,11 @@ final class AppModel {
 
     private func save() {
         guard loaded else { return }
-        let settings = Settings(profiles: profiles, buttonProfileID: buttonProfileID)
+        let settings = AppSettings(profiles: profiles, buttonProfileID: buttonProfileID,
+                                   addedPhotoProfiles: addedPhotoProfiles)
         do {
             try FileManager.default.createDirectory(at: Self.supportFolder, withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(settings).write(to: Self.settingsURL, options: .atomic)
+            try settings.json().write(to: Self.settingsURL, options: .atomic)
         } catch {
             NSLog("Saving settings failed: \(error)")
         }
