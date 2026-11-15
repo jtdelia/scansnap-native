@@ -144,6 +144,10 @@ final class AppModel {
         try FileManager.default.copyItem(at: url, to: destination)
     }
 
+    func installColorProfile(from url: URL) throws {
+        try ColorProfile.install(from: url)
+    }
+
     // MARK: Persistence
 
     private func load() {

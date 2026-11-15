@@ -124,7 +124,8 @@ struct SettingsView: View {
     }
 
     private func icon(for profile: ScanProfile) -> String {
-        switch profile.fileFormat {
+        if profile.correctColor { return "photo" }
+        return switch profile.fileFormat {
         case .pdf: "doc.richtext"
         case .jpeg: "photo"
         }
@@ -136,6 +137,8 @@ struct SettingsView: View {
 struct ScannerSettingsView: View {
     @Bindable var model: AppModel
     @State private var firmwareError: String?
+    @State private var colorProfile = ColorProfile.locate()
+    @State private var colorProfileError: String?
 
     var body: some View {
         Form {
@@ -179,6 +182,19 @@ struct ScannerSettingsView: View {
                 if let firmwareError {
                     Text(firmwareError).foregroundStyle(.red).font(.caption)
                 }
+                LabeledContent("Color profile") {
+                    HStack {
+                        Text(colorProfile?.url.lastPathComponent ?? "Not found")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                            .help(colorProfile?.url.path(percentEncoded: false) ?? "")
+                        Button("Choose…", action: chooseColorProfile)
+                    }
+                }
+                if let colorProfileError {
+                    Text(colorProfileError).foregroundStyle(.red).font(.caption)
+                }
             }
         }
         .formStyle(.grouped)
@@ -202,6 +218,20 @@ struct ScannerSettingsView: View {
         } catch {
             firmwareError = "\(error)"
         }
+    }
+
+    private func chooseColorProfile() {
+        let panel = NSOpenPanel()
+        panel.message = "Choose the scanner's color profile (ScanSnap S1300.icm) from the original ScanSnap Manager."
+        panel.allowedContentTypes = ["icm", "icc"].compactMap { UTType(filenameExtension: $0) }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try model.installColorProfile(from: url)
+            colorProfileError = nil
+        } catch {
+            colorProfileError = "\(error)"
+        }
+        colorProfile = ColorProfile.locate()
     }
 }
 
@@ -278,6 +308,10 @@ struct ProfileEditor: View {
                 Toggle("Rotate pages automatically", isOn: $profile.autoRotate)
                 Toggle("Remove blank pages", isOn: $profile.skipBlankPages)
                 Toggle("Reduce bleed-through", isOn: $profile.reduceBleedThrough)
+            }
+
+            Section("Photos") {
+                Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
             }
         }
         .formStyle(.grouped)

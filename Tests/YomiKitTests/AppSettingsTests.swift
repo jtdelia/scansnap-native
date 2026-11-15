@@ -71,6 +71,19 @@ struct AppSettingsTests {
         #expect(try decodePhotoSetting(#"{"id": "\#(id)", "photoSetting": true}"#) == true)
     }
 
+    @Test func correctColorFollowsTheFixedIDRule() throws {
+        let settings = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(settings.profiles.allSatisfy { !$0.correctColor })
+        for id in ScanProfile.builtInPhotoIDs {
+            let json = #"{"profiles": [{"id": "\#(id.uuidString)", "name": "Photos – Keepers"}]}"#
+            #expect(try AppSettings(json: Data(json.utf8)).profiles.first?.correctColor == true)
+        }
+        var profile = ScanProfile(name: "Prints")
+        profile.correctColor = true
+        let saved = AppSettings(profiles: [profile], buttonProfileID: nil, addedPhotoProfiles: false)
+        #expect(try AppSettings(json: saved.json()).profiles.first?.correctColor == true)
+    }
+
     @Test func emptySettingsDecode() throws {
         let settings = try AppSettings(json: Data("{}".utf8))
         #expect(settings.profiles.isEmpty)

@@ -2,7 +2,7 @@ import CoreGraphics
 import CoreImage
 import Foundation
 
-public struct ProcessingOptions: Sendable, Codable, Equatable {
+public struct ProcessingOptions: Sendable, Equatable {
     public var flattenColumns = true
     public var cropAndStraighten = true
     public var whiteBalance = true
@@ -18,6 +18,9 @@ public struct ProcessingOptions: Sendable, Codable, Equatable {
     public var skipBlankPages = true
     /// Fraction of the page area that must contain ink for a page to count as non-blank.
     public var blankInkFraction = 0.0015
+    /// The scanner's colour profile. When set, the raw scan is interpreted with it and saved in
+    /// Display P3, without white balance, document tone or edge whitening, which would undo it.
+    public var colorProfile: CGColorSpace?
 
     public init() {}
 }
@@ -32,10 +35,16 @@ public struct ProcessedPage: @unchecked Sendable {
 
 public enum PageProcessor {
     private static let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
+    /// Works in extended linear sRGB so colours outside sRGB survive until the Display P3 render.
+    private static let photoContext = CIContext(options: [
+        .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+        .workingFormat: CIFormat.RGBAh,
+    ])
 
     public static func process(_ page: ScannedPage, options: ProcessingOptions) throws -> ProcessedPage {
         let corrected = options.flattenColumns ? ColumnFlattener.flatten(page) : page
-        return try process(try corrected.cgImage(), resolution: page.resolution, side: page.side, options: options)
+        let source = try options.colorProfile.map { try corrected.cgImage(colorSpace: $0) } ?? corrected.cgImage()
+        return try process(source, resolution: page.resolution, side: page.side, options: options)
     }
 
     public static func process(_ source: CGImage, resolution: Int, side: ScannedPage.Side,
@@ -51,13 +60,14 @@ public enum PageProcessor {
             image = resample(image, scale: CGFloat(outputResolution) / CGFloat(resolution))
         }
         let resolution = outputResolution
-        if options.whiteBalance {
+        let correctsColor = options.colorProfile != nil
+        if options.whiteBalance, !correctsColor {
             image = balanceWhite(image)
         }
         // Document tone curve: the scanner's black is only ~40/255, so deepen shadows for crisp
         // text, and lift near-white paper texture and faint remaining show-through to white.
         let knee: CGFloat = options.reduceBleedThrough ? 0.92 : 0.95
-        if options.documentTone { image = image.applyingFilter("CIToneCurve", parameters: [
+        if options.documentTone, !correctsColor { image = image.applyingFilter("CIToneCurve", parameters: [
             "inputPoint0": CIVector(x: 0, y: 0),
             "inputPoint1": CIVector(x: 0.2, y: 0.08),
             "inputPoint2": CIVector(x: 0.5, y: 0.44),
@@ -78,14 +88,15 @@ public enum PageProcessor {
             image = image.applyingFilter("CIColorThresholdOtsu")
         }
 
-        let rgb = CGColorSpace(name: CGColorSpace.sRGB)!
+        let rgb = CGColorSpace(name: correctsColor ? CGColorSpace.displayP3 : CGColorSpace.sRGB)!
         let gray = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
+        let renderer = correctsColor ? photoContext : context
         guard var output = isColor
-            ? context.createCGImage(image, from: image.extent.integral, format: .RGBA8, colorSpace: rgb)
-            : context.createCGImage(image, from: image.extent.integral, format: .L8, colorSpace: gray)
+            ? renderer.createCGImage(image, from: image.extent.integral, format: .RGBA8, colorSpace: rgb)
+            : renderer.createCGImage(image, from: image.extent.integral, format: .L8, colorSpace: gray)
         else { throw ImageWriterError.cannotCreateImage }
 
-        if options.cropAndStraighten {
+        if options.cropAndStraighten, !correctsColor {
             output = cleanEdges(output, resolution: resolution)
         }
         let blank = options.skipBlankPages && inkFraction(output) < options.blankInkFraction
