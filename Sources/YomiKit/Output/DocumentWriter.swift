@@ -45,13 +45,13 @@ public enum DocumentWriter {
                     ? "Recognizing text on page \(page) of \(total)…"
                     : "Saving page \(page) of \(total)…")
             }
-        case .jpeg:
+        case .jpeg, .png, .heic:
             for (index, page) in pages.enumerated() {
                 progress?("Saving page \(offset + index + 1) of \(total)…")
-                try ImageWriter.write(page.image, to: url, type: .jpeg, resolution: page.resolution,
-                                      quality: profile.compression.jpegQuality)
+                try ImageWriter.write(page.image, to: url, type: profile.fileFormat.imageType,
+                                      resolution: page.resolution, quality: profile.compression.jpegQuality)
             }
-        case .multiPageTIFF:
+        case .tiff, .multiPageTIFF:
             try TIFFWriter.write(pages, to: url) { index in
                 progress?("Saving page \(offset + index + 1) of \(total)…")
             }
@@ -72,12 +72,9 @@ public enum DocumentWriter {
     /// The batch's page number of the first page in each file the batch writes.
     private static func firstPages(pages: Int, profile: ScanProfile) -> [Int] {
         guard pages > 0 else { return [] }
-        switch profile.fileFormat {
-        case .jpeg: return Array(1...pages)
-        case .pdf, .multiPageTIFF:
-            guard let pagesPerFile = profile.pagesPerFile, pagesPerFile > 0 else { return [1] }
-            return Array(stride(from: 1, through: pages, by: pagesPerFile))
-        }
+        if profile.fileFormat.savesPagesSeparately { return Array(1...pages) }
+        guard let pagesPerFile = profile.pagesPerFile, pagesPerFile > 0 else { return [1] }
+        return Array(stride(from: 1, through: pages, by: pagesPerFile))
     }
 
     /// The subfolders, separated by `/`, a batch scanned at `date` would be saved in. Empty when there are none.
@@ -147,5 +144,17 @@ public enum DocumentWriter {
             counter += 1
         }
         return url
+    }
+}
+
+private extension ScanProfile.FileFormat {
+    var imageType: UTType {
+        switch self {
+        case .pdf: .pdf
+        case .jpeg: .jpeg
+        case .png: .png
+        case .tiff, .multiPageTIFF: .tiff
+        case .heic: .heic
+        }
     }
 }
