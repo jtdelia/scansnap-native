@@ -138,6 +138,7 @@ private extension ScanProfile {
     }
 }
 
+/// Dims glass while the window is not in front. Apply it only to glass, never to text, which keeps full contrast.
 private struct DimmedWhenInactive: ViewModifier {
     @Environment(\.appearsActive) private var appearsActive
 
@@ -475,8 +476,11 @@ private struct ProfileSummaryBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
-        .dimmedWhenInactive()
+        .background {
+            Color.clear
+                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                .dimmedWhenInactive()
+        }
         .padding(.horizontal, 20)
         .padding(.top, 8)
     }
