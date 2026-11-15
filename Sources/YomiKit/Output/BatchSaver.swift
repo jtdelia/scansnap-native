@@ -19,8 +19,9 @@ public struct PhotoImport: Sendable, Equatable {
 /// Apple Photos, as the app reaches it through PhotoKit.
 public protocol PhotoLibrary: Sendable {
     /// Adds one photo for each of `photos` to the library, and to the album named `album` unless it is empty,
-    /// creating the album when there is none with that name.
-    func add(_ photos: [PhotoImport], album: String) throws
+    /// creating the album when there is none with that name. Returns how many photos were added without the
+    /// enhancement they were given.
+    func add(_ photos: [PhotoImport], album: String) throws -> Int
 }
 
 public enum PhotoLibraryError: Error, Equatable, CustomStringConvertible {
@@ -45,6 +46,8 @@ public struct SavedBatch: Sendable {
     public let warning: String?
     /// Where the batch went, for "Saved 3 pages to …".
     public let place: String
+    /// Something the batch saved without, that is still worth saying, such as Photos dropping an enhancement.
+    public var notice: String? = nil
 }
 
 /// Saves a finished batch to the scan profile's folder, Photos, or both.
@@ -59,11 +62,14 @@ public enum BatchSaver {
         if profile.saveTo.savesToFolder {
             let saved = try DocumentWriter.saveFiles(pages, profile: profile, date: date, progress: progress)
             let files = saved.map(\.url)
-            if let error = addToPhotos(saved, profile: profile, library: photoLibrary) {
+            switch addToPhotos(saved, profile: profile, library: photoLibrary) {
+            case let .failure(error):
                 return SavedBatch(files: files, warning: "Couldn't save to Photos: \(error) Saved to \(folder) only.",
                                   place: folder)
+            case let .success(unenhanced):
+                return SavedBatch(files: files, warning: nil, place: "\(folder) and \(photosPlace(profile))",
+                                  notice: enhancementNotice(unenhanced))
             }
-            return SavedBatch(files: files, warning: nil, place: "\(folder) and \(photosPlace(profile))")
         }
         let staging = FileManager.default.temporaryDirectory
             .appendingPathComponent("Yomi-\(UUID().uuidString)", isDirectory: true)
@@ -71,7 +77,8 @@ public enum BatchSaver {
         staged.folderPath = staging.path
         staged.subfolderPattern = []
         let saved = try DocumentWriter.saveFiles(pages, profile: staged, date: date, progress: progress)
-        if let error = addToPhotos(saved, profile: profile, library: photoLibrary) {
+        let added = addToPhotos(saved, profile: profile, library: photoLibrary)
+        if case let .failure(error) = added {
             let reason = "Couldn't save to Photos: \(error)"
             do {
                 let files = try copy(saved, into: profile, date: date)
@@ -85,22 +92,24 @@ public enum BatchSaver {
             }
         }
         try? FileManager.default.removeItem(at: staging)
-        return SavedBatch(files: [], warning: nil, place: photosPlace(profile))
+        return SavedBatch(files: [], warning: nil, place: photosPlace(profile),
+                          notice: enhancementNotice((try? added.get()) ?? 0))
     }
 
-    /// Adds the saved files to Photos, one photo per file, and returns why that failed, or `nil` when it worked.
+    /// Adds the saved files to Photos, one photo per file, and returns how many lost their enhancement.
     private static func addToPhotos(_ saved: [DocumentWriter.SavedFile], profile: ScanProfile,
-                                    library: (any PhotoLibrary)?) -> Error? {
+                                    library: (any PhotoLibrary)?) -> Result<Int, Error> {
         let photos = saved.map { file in
             file.original.map { PhotoImport(original: $0, edited: file.url) } ?? PhotoImport(original: file.url)
         }
-        do {
+        return Result {
             guard let library else { throw PhotoLibraryError.failed("Saving to Photos needs the Yomi app.") }
-            try library.add(photos, album: profile.photosAlbum)
-            return nil
-        } catch {
-            return error
+            return try library.add(photos, album: profile.photosAlbum)
         }
+    }
+
+    private static func enhancementNotice(_ unenhanced: Int) -> String? {
+        unenhanced == 0 ? nil : "Saved to Photos without enhancement for \(unenhanced) photo\(unenhanced == 1 ? "" : "s")."
     }
 
     /// Copies staged files, and their `_original` copies, into the folder the scan profile saves in, numbering any

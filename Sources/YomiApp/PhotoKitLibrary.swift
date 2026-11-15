@@ -10,7 +10,7 @@ struct PhotoKitLibrary: PhotoLibrary {
         var status = PHAuthorizationStatus.notDetermined
     }
 
-    func add(_ photos: [PhotoImport], album: String) throws {
+    func add(_ photos: [PhotoImport], album: String) throws -> Int {
         guard Self.requestAccess() else { throw PhotoLibraryError.accessDenied }
         let library = PHPhotoLibrary.shared()
         var collection: PHAssetCollection?
@@ -32,7 +32,7 @@ struct PhotoKitLibrary: PhotoLibrary {
                 guard collection != nil else { throw PhotoLibraryError.albumNotCreated(album) }
             }
         }
-        let editError = ErrorBox()
+        let editFailures = FailureCount()
         do {
             try library.performChangesAndWait {
                 let assets = photos.compactMap { photo -> PHObjectPlaceholder? in
@@ -45,7 +45,8 @@ struct PhotoKitLibrary: PhotoLibrary {
                         do {
                             request.contentEditingOutput = try Self.enhancement(edited, for: placeholder)
                         } catch {
-                            editError.error = error
+                            NSLog("Photos edit failed for \(photo.name): \(error)")
+                            editFailures.count += 1
                         }
                     }
                     return placeholder
@@ -57,13 +58,11 @@ struct PhotoKitLibrary: PhotoLibrary {
         } catch {
             throw Self.libraryError(error, otherwise: .failed("Photos couldn't add the photos (\(error.localizedDescription))."))
         }
-        if let error = editError.error {
-            throw PhotoLibraryError.failed("Photos added the photos without auto-enhance (\(error.localizedDescription)).")
-        }
+        return editFailures.count
     }
 
-    private final class ErrorBox: @unchecked Sendable {
-        var error: Error?
+    private final class FailureCount: @unchecked Sendable {
+        var count = 0
     }
 
     /// Identifies Yomi's edits in Photos, which shows them as adjustments that Revert to Original removes.

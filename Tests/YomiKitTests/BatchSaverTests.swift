@@ -20,12 +20,16 @@ struct BatchSaverTests {
     /// Records what it was asked to add, or fails with `error`.
     private final class FakePhotoLibrary: PhotoLibrary, @unchecked Sendable {
         let error: PhotoLibraryError?
+        let unenhanced: Int
         private(set) var added: [(photos: [AddedPhoto], album: String)] = []
         private(set) var filesExisted = true
 
-        init(failingWith error: PhotoLibraryError? = nil) { self.error = error }
+        init(failingWith error: PhotoLibraryError? = nil, unenhanced: Int = 0) {
+            self.error = error
+            self.unenhanced = unenhanced
+        }
 
-        func add(_ photos: [PhotoImport], album: String) throws {
+        func add(_ photos: [PhotoImport], album: String) throws -> Int {
             let files = photos.flatMap { [$0.original] + ($0.edited.map { [$0] } ?? []) }
             filesExisted = files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
             if let error { throw error }
@@ -35,6 +39,7 @@ struct BatchSaverTests {
                            edited: photo.edited?.lastPathComponent,
                            editedData: photo.edited.flatMap { try? Data(contentsOf: $0) })
             }, album))
+            return unenhanced
         }
 
         /// Names of the photos added in each call.
@@ -209,6 +214,17 @@ struct BatchSaverTests {
         #expect(Self.folderContents(profile).count == 4)
         #expect(saved.files.map(\.lastPathComponent) == Self.names)
         #expect(saved.warning == nil)
+    }
+
+    @Test(arguments: [(ScanProfile.SaveDestination.photos, 0), (.folderAndPhotos, 4)])
+    func photosAddedWithoutTheirEnhancementCountAsSaved(saveTo: ScanProfile.SaveDestination, files: Int) async throws {
+        let profile = try Self.profile(saveTo, autoEnhance: true)
+        let library = FakePhotoLibrary(unenhanced: 2)
+        let saved = try await Self.saveEnhanced(profile, library: library)
+        #expect(library.added.count == 1)
+        #expect(Self.folderContents(profile).count == files)
+        #expect(saved.warning == nil)
+        #expect(saved.notice == "Saved to Photos without enhancement for 2 photos.")
     }
 
     @Test func withoutAPhotoLibraryTheBatchGoesToTheFolder() throws {
