@@ -190,8 +190,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     /// Save the picture side of a print fed back-side-first as the photo, keeping the feed
     /// direction whenever the sides are not clearly the wrong way round.
     public var findPictureSide: Bool
-    /// Save writing read from a print's back as the photo's caption. The back is never saved, and the
-    /// picture side is never dropped as blank.
+    /// Save writing read from a print's back as the photo's caption. A back that is mostly plain paper is never
+    /// saved; a back that looks like a picture is saved as a photo instead of being read.
     public var backCaptions: Bool
 
     public init(

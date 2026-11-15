@@ -13,8 +13,11 @@ enum PrintSideDetector {
         /// The front is nearly all plain paper (writing and lab printing are thin), the back is
         /// mostly not, and the back's picture covers enough of the print to be more than shadows.
         var isFedBackSideFirst: Bool {
-            frontPaper >= 0.85 && backPaper <= 0.5 && Double(backArea) >= 0.5 * Double(frontArea)
+            frontPaper >= 0.85 && backLooksLikePicture && Double(backArea) >= 0.5 * Double(frontArea)
         }
+
+        /// The back is mostly not plain paper, so it may carry a picture rather than writing.
+        var backLooksLikePicture: Bool { backPaper <= 0.5 }
     }
 
     static func measure(front: ScannedPage, back: ScannedPage) -> Measurement {

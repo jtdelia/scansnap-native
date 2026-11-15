@@ -179,15 +179,24 @@ struct BackCaptionTests {
         #expect(try await Self.process(front: Self.picture, back: back).pages.first?.caption == date)
     }
 
-    @Test func palePictureIsNeverDroppedAsBlank() async throws {
-        var withoutCaptions = ScanProfile.builtInPhotoProfiles[0]
-        withoutCaptions.backCaptions = false
-        let pale = Side(picture: .pale)
-        #expect(try await Self.process(front: pale, back: Self.blank, profile: withoutCaptions).pages.isEmpty)
-
-        let sheet = try await Self.process(front: pale, back: Self.blank)
+    @Test(arguments: [("photo cropping", true, false), ("back captions", false, true), ("both", true, true)])
+    func palePictureIsNeverDroppedAsBlank(_ name: String, cropToPrint: Bool, backCaptions: Bool) async throws {
+        var profile = ScanProfile.builtInPhotoProfiles[0]
+        profile.cropToPrint = cropToPrint
+        profile.backCaptions = backCaptions
+        let sheet = try await Self.process(front: Side(picture: .pale), back: Self.blank, profile: profile)
         #expect(sheet.pages.map(\.source) == [.front])
         #expect(sheet.blankSides == 1)
+    }
+
+    @Test(arguments: [true, false])
+    func backThatLooksLikeAPictureIsSavedAsAPhoto(findPictureSide: Bool) async throws {
+        var profile = ScanProfile.builtInPhotoProfiles[0]
+        profile.findPictureSide = findPictureSide
+        let sheet = try await Self.process(front: Self.picture, back: Self.picture, profile: profile)
+        #expect(sheet.pages.map(\.source) == [.front, .back])
+        #expect(sheet.pages.allSatisfy { $0.caption == nil })
+        #expect(sheet.blankSides == 0)
     }
 
     // MARK: Saved files
