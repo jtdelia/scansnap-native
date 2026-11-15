@@ -1,10 +1,8 @@
 import CoreGraphics
-import CoreML
 import CoreText
 import Foundation
 import ImageIO
 import Testing
-import Vision
 @testable import YomiKit
 
 /// Writing on the back of a print becomes the photo's caption, and the back is never saved.
@@ -157,67 +155,6 @@ struct BackCaptionTests {
         let caption = try #require(sheet.pages.first?.caption, "\(sheet.notes)")
         #expect(caption.localizedCaseInsensitiveContains("Lake Tahoe"))
         #expect(caption.contains("1962"))
-    }
-
-    @Test(.enabled("Vision text recognition is unavailable") { await textRecognition.value })
-    func handwrittenNoteIsReadOnCPU() async throws {
-        let reading = try await offTheTaskPool {
-            let back = try Self.scan(Side(text: Self.handwrittenNote), as: .back).cgImage()
-            return BackCaptionReader.read(back, useCPU: true)
-        }
-        guard case let .caption(caption) = reading else {
-            Issue.record("Expected a handwritten caption, got \(reading)")
-            return
-        }
-        #expect(caption.localizedCaseInsensitiveContains("Grandma and Joe"))
-        #expect(caption.localizedCaseInsensitiveContains("Lake Tahoe"))
-        #expect(caption.contains("1962"))
-    }
-
-    // TEMPORARY: Remove after diagnosing text recognition on the GitHub runner.
-    @Test func visionConfigurationDiagnostic() async {
-        do {
-            try await offTheTaskPool {
-                let image = try Self.scan(Side(text: [Self.handwriting("Grandma and Joe", y: 210)]), as: .back).cgImage()
-                for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
-                    for automaticLanguage in [true, false] {
-                        for useCPU in [false, true] {
-                            let request = VNRecognizeTextRequest()
-                            request.recognitionLevel = level
-                            request.automaticallyDetectsLanguage = automaticLanguage
-                            if !automaticLanguage { request.recognitionLanguages = ["en-US"] }
-                            let configuration = "level=\(level == .accurate ? "accurate" : "fast")"
-                                + " language=\(automaticLanguage ? "automatic" : "en-US")"
-                                + " device=\(useCPU ? "CPU" : "default") revision=\(request.revision)"
-                            do {
-                                print("VISION-DIAG \(configuration) supportedLanguages=\(try request.supportedRecognitionLanguages())")
-                            } catch {
-                                let error = error as NSError
-                                print("VISION-DIAG \(configuration) supportedLanguages error domain=\(error.domain) code=\(error.code)")
-                            }
-                            do {
-                                if useCPU {
-                                    guard let cpu = try request.supportedComputeStageDevices[.main]?.first(where: {
-                                        if case .cpu = $0 { return true }
-                                        return false
-                                    }) else { throw NSError(domain: VNErrorDomain, code: VNErrorCode.unsupportedComputeDevice.rawValue) }
-                                    request.setComputeDevice(cpu, for: .main)
-                                }
-                                try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-                                let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
-                                print("VISION-DIAG \(configuration) text=\(text.debugDescription)")
-                            } catch {
-                                let error = error as NSError
-                                print("VISION-DIAG \(configuration) error domain=\(error.domain) code=\(error.code)")
-                            }
-                        }
-                    }
-                }
-            }
-        } catch {
-            let error = error as NSError
-            print("VISION-DIAG image preparation error domain=\(error.domain) code=\(error.code)")
-        }
     }
 
     /// Lines turned by `angle` (anticlockwise) around the print's centre.
