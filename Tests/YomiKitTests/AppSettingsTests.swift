@@ -193,12 +193,6 @@ struct AppSettingsTests {
         #expect(try AppSettings(json: Data(#"{"appearance": "\#(saved)"}"#.utf8)).appearance == appearance)
     }
 
-    @Test func appearanceMapsToAppKitAppearance() {
-        #expect(AppSettings.Appearance.system.appKitName == nil)
-        #expect(AppSettings.Appearance.light.appKitName == .aqua)
-        #expect(AppSettings.Appearance.dark.appKitName == .darkAqua)
-    }
-
     // MARK: Photo scan profiles
 
     @Test func newInstallHasBothPhotoProfilesAndNoPhotos() {

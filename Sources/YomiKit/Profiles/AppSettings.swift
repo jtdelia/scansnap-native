@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 /// Everything the app saves in `Settings.json`.
@@ -12,15 +11,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
             case .system: "System"
             case .light: "Light"
             case .dark: "Dark"
-            }
-        }
-
-        /// The AppKit appearance to force, or `nil` to follow macOS.
-        public var appKitName: NSAppearance.Name? {
-            switch self {
-            case .system: nil
-            case .light: .aqua
-            case .dark: .darkAqua
             }
         }
     }

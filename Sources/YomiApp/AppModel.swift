@@ -223,3 +223,14 @@ final class AppModel {
         }
     }
 }
+
+private extension AppSettings.Appearance {
+    /// The AppKit appearance to force, or `nil` to follow macOS.
+    var appKitName: NSAppearance.Name? {
+        switch self {
+        case .system: nil
+        case .light: .aqua
+        case .dark: .darkAqua
+        }
+    }
+}
