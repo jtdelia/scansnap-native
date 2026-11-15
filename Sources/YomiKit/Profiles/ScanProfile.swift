@@ -183,6 +183,9 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var correctColor: Bool
     /// Save each file with Core Image's auto-adjustments, plus an untouched copy named with `_original`.
     public var autoEnhance: Bool
+    /// Save the picture side of a print fed back-side-first as the photo, keeping the feed
+    /// direction whenever the sides are not clearly the wrong way round.
+    public var findPictureSide: Bool
 
     public init(
         id: UUID = UUID(),
@@ -207,7 +210,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         nextNumber: Int = 1,
         numberDigits: Int = 3,
         correctColor: Bool = false,
-        autoEnhance: Bool = false
+        autoEnhance: Bool = false,
+        findPictureSide: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -232,6 +236,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.numberDigits = numberDigits
         self.correctColor = correctColor
         self.autoEnhance = autoEnhance
+        self.findPictureSide = findPictureSide
     }
 
     /// Every key is optional, so scan profiles saved by any earlier version keep loading.
@@ -266,6 +271,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
         correctColor = try container.decodePhotoSetting(forKey: .correctColor, profileID: id)
         autoEnhance = try container.decodePhotoSetting(forKey: .autoEnhance, profileID: id)
+        findPictureSide = try container.decodePhotoSetting(forKey: .findPictureSide, profileID: id)
     }
 
     /// Keys that earlier versions saved and this version only reads.
@@ -329,7 +335,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         ScanProfile(id: UUID(uuidString: id)!, name: name, saveTo: .photos, quality: quality, colorMode: .color,
                     sides: .duplex, skipBlankPages: true, reduceBleedThrough: false, autoRotate: false,
                     fileFormat: .heic, searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage,
-                    correctColor: true, autoEnhance: true)
+                    correctColor: true, autoEnhance: true, findPictureSide: true)
     }
 
     /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving only into `folder` at `dpi`,

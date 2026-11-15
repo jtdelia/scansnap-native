@@ -16,6 +16,15 @@ public enum SheetProcessor {
         var front = ColumnFlattener.flatten(rawFront)
         var back = ColumnFlattener.flatten(rawBack)
 
+        if profile.findPictureSide, profile.sides == .duplex {
+            let sides = PrintSideDetector.measure(front: front, back: back)
+            result.notes.append(String(format: "plain paper: front %.2f back %.2f", sides.frontPaper, sides.backPaper))
+            if sides.isFedBackSideFirst {
+                swap(&front, &back)
+                result.notes.append("print fed back-side-first: saving the back as the picture")
+            }
+        }
+
         let backFit = ShowThroughDetector.analyze(target: back, other: front)
         let frontFit = ShowThroughDetector.analyze(target: front, other: back)
         for (label, fit) in [("front", frontFit), ("back", backFit)] {

@@ -412,6 +412,7 @@ struct ProfileEditor: View {
             Section("Photos") {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
                 Toggle("Auto-enhance, keeping an untouched copy named “_original”", isOn: $profile.autoEnhance)
+                Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
             }
         }
         .formStyle(.grouped)
