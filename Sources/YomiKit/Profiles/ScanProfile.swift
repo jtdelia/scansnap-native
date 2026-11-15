@@ -132,6 +132,9 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var searchablePDF: Bool
     public var compression: Compression
     public var namePattern: FileNamePattern
+    /// Folders, separated by `/`, that each batch goes into inside the scan profile's folder. Empty saves
+    /// straight into the folder.
+    public var subfolderPattern: FileNamePattern
     public var nextNumber: Int
     public var numberDigits: Int
 
@@ -151,6 +154,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         searchablePDF: Bool = true,
         compression: Compression = .medium,
         namePattern: FileNamePattern = .dateAndTime,
+        subfolderPattern: FileNamePattern = [],
         nextNumber: Int = 1,
         numberDigits: Int = 3
     ) {
@@ -169,6 +173,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.searchablePDF = searchablePDF
         self.compression = compression
         self.namePattern = namePattern
+        self.subfolderPattern = subfolderPattern
         self.nextNumber = nextNumber
         self.numberDigits = numberDigits
     }
@@ -195,6 +200,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         compression = try container.decodeIfPresent(Compression.self, forKey: .compression) ?? defaults.compression
         namePattern = try (try? container.decodeIfPresent(FileNamePattern.self, forKey: .namePattern))
             ?? Self.convertedNamePattern(decoder.container(keyedBy: LegacyKeys.self), fileFormat: fileFormat)
+        subfolderPattern = (try? container.decodeIfPresent(FileNamePattern.self, forKey: .subfolderPattern))
+            ?? defaults.subfolderPattern
         nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
     }

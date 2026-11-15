@@ -259,6 +259,26 @@ struct ProfileEditor: View {
                             .help("Open folder")
                     }
                 }
+                LabeledContent("Subfolders") {
+                    HStack {
+                        TextField("Subfolders", text: Binding(
+                            get: { profile.subfolderPattern.editorText },
+                            set: { profile.subfolderPattern = FileNamePattern(editorText: $0) }),
+                        prompt: Text("None"))
+                            .labelsHidden()
+                        Menu {
+                            Button("One folder per month") { profile.subfolderPattern = [.year, .text("/"), .month] }
+                            Section("Add") {
+                                ForEach(FileNamePattern.Piece.batchWide, id: \.self) { piece in
+                                    Button(piece.title) { profile.subfolderPattern.pieces.append(piece) }
+                                }
+                            }
+                        } label: { Image(systemName: "plus") }
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("Add a piece; type / to start a new folder level")
+                    }
+                }
                 Picker("After scanning", selection: $profile.afterScan) {
                     ForEach(ScanProfile.AfterScan.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
@@ -352,7 +372,9 @@ private struct ProfileSummaryBar: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.summary)
                     .font(.callout.weight(.medium))
-                Text("\(profile.folderURL.lastPathComponent) / \(DocumentWriter.exampleFileName(for: profile))")
+                Text(([profile.folderURL.lastPathComponent]
+                    + DocumentWriter.exampleSubfolder(for: profile).split(separator: "/").map(String.init)
+                    + [DocumentWriter.exampleFileName(for: profile)]).joined(separator: " / "))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .truncationMode(.middle)
