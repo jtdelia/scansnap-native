@@ -1,10 +1,10 @@
 import Foundation
 
-/// One photo to add to Photos: the untouched scan, and the enhanced version of it when auto-enhance made one.
+/// One photo to add to Photos: the untouched page, and the enhanced version of it when auto-enhance made one.
 public struct PhotoImport: Sendable, Equatable {
-    /// The scan as it came from the scanner, which Photos keeps as the photo's original.
+    /// The page as Yomi processed it, before auto-enhance, which Photos keeps as the photo's original.
     public let original: URL
-    /// The enhanced scan, which Photos shows as an edit that Revert to Original undoes.
+    /// The enhanced page, which Photos shows as an edit that Revert to Original undoes.
     public let edited: URL?
 
     /// The file name Photos records for the photo, without `_original`.

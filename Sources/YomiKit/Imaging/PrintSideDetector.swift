@@ -1,7 +1,7 @@
 import Foundation
 
-/// Tells whether a print went through the feeder back-side-first: plain paper on the front and a
-/// picture on the back. Anything less clear-cut counts as fed picture-side-first.
+/// Tells whether a print went through the feeder back-side-first: plain paper on the front and the
+/// picture side on the back. Anything less clear-cut counts as fed picture-side-first.
 enum PrintSideDetector {
     /// Shares of the print covered by plain paper, measured on both sides.
     struct Measurement {
@@ -11,13 +11,13 @@ enum PrintSideDetector {
         var backArea: Int
 
         /// The front is nearly all plain paper (writing and lab printing are thin), the back is
-        /// mostly not, and the back's picture covers enough of the print to be more than shadows.
+        /// mostly not, and the back covers enough of the print to be the picture side rather than shadows.
         var isFedBackSideFirst: Bool {
-            frontPaper >= 0.85 && backLooksLikePicture && Double(backArea) >= 0.5 * Double(frontArea)
+            frontPaper >= 0.85 && backLooksLikePictureSide && Double(backArea) >= 0.5 * Double(frontArea)
         }
 
-        /// The back is mostly not plain paper, so it may carry a picture rather than writing.
-        var backLooksLikePicture: Bool { backPaper <= 0.5 }
+        /// The back is mostly not plain paper, so it may be a picture side rather than writing.
+        var backLooksLikePictureSide: Bool { backPaper <= 0.5 }
     }
 
     static func measure(front: ScannedPage, back: ScannedPage) -> Measurement {

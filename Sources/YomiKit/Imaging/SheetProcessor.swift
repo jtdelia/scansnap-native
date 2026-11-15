@@ -16,15 +16,15 @@ public enum SheetProcessor {
         var front = ColumnFlattener.flatten(rawFront)
         var back = ColumnFlattener.flatten(rawBack)
 
-        var backLooksLikePicture = false
+        var backLooksLikePictureSide = false
         if profile.findPictureSide || profile.backCaptions, profile.sides == .duplex {
             let sides = PrintSideDetector.measure(front: front, back: back)
             result.notes.append(String(format: "plain paper: front %.2f back %.2f", sides.frontPaper, sides.backPaper))
             if profile.findPictureSide, sides.isFedBackSideFirst {
                 swap(&front, &back)
-                result.notes.append("print fed back-side-first: saving the back as the picture")
+                result.notes.append("print fed back-side-first: saving the back as the picture side")
             } else {
-                backLooksLikePicture = sides.backLooksLikePicture
+                backLooksLikePictureSide = sides.backLooksLikePictureSide
             }
         }
 
@@ -38,8 +38,8 @@ public enum SheetProcessor {
         }
 
         // Only a back that is mostly plain paper is read for a caption and never saved.
-        let readsBack = profile.backCaptions && profile.sides == .duplex && !backLooksLikePicture
-        if backLooksLikePicture { result.notes.append("back looks like a picture: saving it as a photo") }
+        let readsBack = profile.backCaptions && profile.sides == .duplex && !backLooksLikePictureSide
+        if backLooksLikePictureSide { result.notes.append("back looks like a picture side: saving it as a photo") }
         let keepBack = profile.sides == .duplex && !readsBack
             && !(profile.skipBlankPages && (backFit?.isShowThroughOnly ?? false))
         if profile.sides == .duplex, !keepBack, !readsBack { result.blankSides += 1 }
@@ -70,7 +70,7 @@ public enum SheetProcessor {
         // never checks the picture side.
         var pictureOptions = options
         if profile.cropToPrint || profile.backCaptions { pictureOptions.skipBlankPages = false }
-        let backOptions = backLooksLikePicture ? pictureOptions : options
+        let backOptions = backLooksLikePictureSide ? pictureOptions : options
         for (side, options) in [(front, pictureOptions)] + (keepBack ? [(back, backOptions)] : []) {
             var page = try PageProcessor.process(side, options: options)
             if page.isBlank {
