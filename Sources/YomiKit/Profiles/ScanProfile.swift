@@ -134,6 +134,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var namePattern: FileNamePattern
     public var nextNumber: Int
     public var numberDigits: Int
+    /// Interpret colour with the scanner's colour profile and save in Display P3.
+    public var correctColor: Bool
 
     public init(
         id: UUID = UUID(),
@@ -152,7 +154,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         compression: Compression = .medium,
         namePattern: FileNamePattern = .dateAndTime,
         nextNumber: Int = 1,
-        numberDigits: Int = 3
+        numberDigits: Int = 3,
+        correctColor: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -171,6 +174,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.namePattern = namePattern
         self.nextNumber = nextNumber
         self.numberDigits = numberDigits
+        self.correctColor = correctColor
     }
 
     /// Every key is optional, so scan profiles saved by any earlier version keep loading.
@@ -197,6 +201,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
             ?? Self.convertedNamePattern(decoder.container(keyedBy: LegacyKeys.self), fileFormat: fileFormat)
         nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
+        correctColor = try container.decodePhotoSetting(forKey: .correctColor, profileID: id)
     }
 
     /// Keys that earlier versions saved and this version only reads.

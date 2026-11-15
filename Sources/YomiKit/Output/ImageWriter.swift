@@ -9,12 +9,12 @@ public enum ImageWriterError: Error {
 }
 
 extension ScannedPage {
-    public func cgImage() throws -> CGImage {
+    public func cgImage(colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!) throws -> CGImage {
         guard width > 0, height > 0,
               let provider = CGDataProvider(data: Data(rgb) as CFData),
               let image = CGImage(
                   width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 24,
-                  bytesPerRow: width * 3, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                  bytesPerRow: width * 3, space: colorSpace,
                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
                   provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
         else { throw ImageWriterError.cannotCreateImage }

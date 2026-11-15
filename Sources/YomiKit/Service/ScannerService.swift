@@ -259,6 +259,10 @@ public final class ScannerService: @unchecked Sendable {
         }
         update { _ in }
 
+        let colorCorrection = ColorCorrection.forBatch(profile)
+        if let line = colorCorrection.logLine { ScanLog.write("  \(line)") }
+        let colorProfile = colorCorrection.colorSpace
+
         let engine = try ScanEngine(device: device, dpi: profile.quality.dpi)
         engine.isCancelled = { [weak self] in self?.isCancelRequested ?? true }
         engine.log = { ScanLog.write("  \($0)") }
@@ -288,7 +292,8 @@ public final class ScannerService: @unchecked Sendable {
                     defer { group.leave() }
                     if saveRaw { self.saveRaw(rawFront, rawBack, sheet: index) }
                     do {
-                        let sheet = try SheetProcessor.process(front: rawFront, back: rawBack, profile: profile)
+                        let sheet = try SheetProcessor.process(front: rawFront, back: rawBack, profile: profile,
+                                                               colorProfile: colorProfile)
                         sheet.notes.forEach { ScanLog.write("  sheet \(index) \($0)") }
                         state.lock.withLock { state.results[index] = sheet.pages }
                         update {
@@ -325,11 +330,13 @@ public final class ScannerService: @unchecked Sendable {
             update { $0.phase = phase }
         }
         var outcome = ScanOutcome(files: files, sheets: sheets, pages: pages.count, blankPagesSkipped: skipped)
-        if let stopReason {
-            outcome.warning = (stopReason as? ScanError)?.isCancellation == true
+        let stopWarning = stopReason.map { stopReason in
+            (stopReason as? ScanError)?.isCancellation == true
                 ? "Stopped. Pages scanned so far were saved."
                 : "Stopped early (\(stopReason)). Pages scanned so far were saved."
         }
+        let warnings = [stopWarning, colorCorrection.warning].compactMap { $0 }
+        outcome.warning = warnings.isEmpty ? nil : warnings.joined(separator: " ")
         return outcome
     }
 }
