@@ -141,6 +141,56 @@ struct FileNameTests {
         #expect(try Self.save(2, paged) == ["Bank p001.jpg", "Bank p002.jpg"])
     }
 
+    // MARK: One file every N pages
+
+    @Test func pdfEveryThreePagesNamesFilesByTheirFirstPage() throws {
+        let profile = ScanProfile(name: "Bank", pagesPerFile: 3)
+        #expect(try Self.save(7, profile) == [
+            "2026-11-14 21.42.05_001.pdf", "2026-11-14 21.42.05_004.pdf", "2026-11-14 21.42.05_007.pdf",
+        ])
+    }
+
+    @Test func pdfEveryThreePagesUsesOneRunningNumberPerFile() throws {
+        let profile = ScanProfile(name: "Bank", pagesPerFile: 3,
+                                  namePattern: [.text("Bank "), .runningNumber, .text(" p"), .pageNumber], nextNumber: 41)
+        let names = try Self.save(8, profile)
+        #expect(names == ["Bank 041 p001.pdf", "Bank 042 p004.pdf", "Bank 043 p007.pdf"])
+        #expect(DocumentWriter.numbersUsed(pages: 8, profile: profile) == names.count)
+    }
+
+    @Test func pdfEveryThreePagesKeepsPagesInOrder() throws {
+        var profile = ScanProfile(name: "Bank", pagesPerFile: 3)
+        profile.folderPath = try Self.temporaryFolder().path
+        profile.searchablePDF = false
+        let pages = (1...4).map { width in
+            let page = Self.page()
+            return ProcessedPage(image: page.image.cropping(to: CGRect(x: 0, y: 0, width: width, height: 8))!,
+                                 resolution: 72, isBlank: false, source: .front, isColor: true)
+        }
+        let urls = try DocumentWriter.save(pages, profile: profile, date: Self.date)
+        let widths = urls.map { url in
+            let document = CGPDFDocument(url as CFURL)!
+            return (1...document.numberOfPages).map { Int(document.page(at: $0)!.getBoxRect(.mediaBox).width) }
+        }
+        #expect(widths == [[1, 2, 3], [4]])
+    }
+
+    @Test func fewerPagesThanNMakesOneFileWithoutSuffix() throws {
+        #expect(try Self.save(2, ScanProfile(name: "Bank", pagesPerFile: 3)) == ["2026-11-14 21.42.05.pdf"])
+    }
+
+    @Test func splittingDoesNotApplyToJPEG() throws {
+        let profile = ScanProfile(name: "Bank", fileFormat: .jpeg, pagesPerFile: 2, namePattern: [.profileName])
+        #expect(try Self.save(3, profile) == ["Bank_001.jpg", "Bank_002.jpg", "Bank_003.jpg"])
+    }
+
+    @Test func pagesPerFileIsSavedAndMissingMeansOneFilePerBatch() throws {
+        let profile = try Self.v1Profile(named: "Scan to Yomi Folder")
+        #expect(profile.pagesPerFile == nil)
+        let settings = AppSettings(profiles: [ScanProfile(name: "A", pagesPerFile: 5)])
+        #expect(try AppSettings(json: settings.json()).profiles.first?.pagesPerFile == 5)
+    }
+
     @Test func runningNumberAdvancesOnlyWhenUsed() {
         let numbered = ScanProfile(name: "A", fileFormat: .jpeg, namePattern: .nameAndNumber("Scan"))
         #expect(DocumentWriter.numbersUsed(pages: 3, profile: numbered) == 3)

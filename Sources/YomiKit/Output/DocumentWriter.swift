@@ -9,18 +9,26 @@ public enum DocumentWriter {
         guard !pages.isEmpty else { return [] }
         let folder = saveFolder(profile, date: date)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let names = baseNames(profile, firstPages: firstPages(pages: pages.count, profile: profile), date: date)
+        let starts = firstPages(pages: pages.count, profile: profile)
+        let names = baseNames(profile, firstPages: starts, date: date)
+        let files = starts.indices.map { file in
+            let end = file + 1 < starts.count ? starts[file + 1] - 1 : pages.count
+            return (name: names[file], offset: starts[file] - 1, pages: Array(pages[(starts[file] - 1)..<end]))
+        }
 
         switch profile.fileFormat {
         case .pdf:
-            let url = uniqueURL(in: folder, base: names[0], ext: "pdf")
-            try PDFWriter.write(pages, to: url, jpegQuality: profile.compression.jpegQuality,
-                                searchable: profile.searchablePDF) { index in
-                progress?(profile.searchablePDF
-                    ? "Recognizing text on page \(index + 1) of \(pages.count)…"
-                    : "Saving page \(index + 1) of \(pages.count)…")
+            return try files.map { file in
+                let url = uniqueURL(in: folder, base: file.name, ext: "pdf")
+                try PDFWriter.write(file.pages, to: url, jpegQuality: profile.compression.jpegQuality,
+                                    searchable: profile.searchablePDF) { index in
+                    let page = file.offset + index + 1
+                    progress?(profile.searchablePDF
+                        ? "Recognizing text on page \(page) of \(pages.count)…"
+                        : "Saving page \(page) of \(pages.count)…")
+                }
+                return url
             }
-            return [url]
         case .jpeg:
             var urls: [URL] = []
             for (index, page) in pages.enumerated() {
@@ -32,11 +40,13 @@ public enum DocumentWriter {
             }
             return urls
         case .multiPageTIFF:
-            let url = uniqueURL(in: folder, base: names[0], ext: profile.fileFormat.fileExtension)
-            try TIFFWriter.write(pages, to: url) { index in
-                progress?("Saving page \(index + 1) of \(pages.count)…")
+            return try files.map { file in
+                let url = uniqueURL(in: folder, base: file.name, ext: profile.fileFormat.fileExtension)
+                try TIFFWriter.write(file.pages, to: url) { index in
+                    progress?("Saving page \(file.offset + index + 1) of \(pages.count)…")
+                }
+                return url
             }
-            return [url]
         }
     }
 
@@ -54,7 +64,12 @@ public enum DocumentWriter {
     /// The batch's page number of the first page in each file the batch writes.
     private static func firstPages(pages: Int, profile: ScanProfile) -> [Int] {
         guard pages > 0 else { return [] }
-        return profile.fileFormat == .jpeg ? Array(1...pages) : [1]
+        switch profile.fileFormat {
+        case .jpeg: return Array(1...pages)
+        case .pdf, .multiPageTIFF:
+            guard let pagesPerFile = profile.pagesPerFile, pagesPerFile > 0 else { return [1] }
+            return Array(stride(from: 1, through: pages, by: pagesPerFile))
+        }
     }
 
     /// The subfolders, separated by `/`, a batch scanned at `date` would be saved in. Empty when there are none.
