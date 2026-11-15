@@ -82,6 +82,24 @@ struct MultiPageTIFFTests {
         #expect(DocumentWriter.numbersUsed(pages: pages.count, profile: profile) == 1)
     }
 
+    @Test func everyPageItsOwnFileUsesARunningNumberPerFile() throws {
+        let folder = try Self.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let pages = try (1...3).map { try Self.page(width: 10 * $0, height: 10, seed: $0, color: true, resolution: 300) }
+        let profile = ScanProfile(name: "Test", folderPath: folder.path, fileFormat: .multiPageTIFF,
+                                  pagesPerFile: 1, namePattern: .nameAndNumber("Scan"), nextNumber: 7)
+
+        let urls = try DocumentWriter.save(pages, profile: profile)
+
+        #expect(urls.map(\.lastPathComponent) == ["Scan 007.tiff", "Scan 008.tiff", "Scan 009.tiff"])
+        #expect(DocumentWriter.numbersUsed(pages: pages.count, profile: profile) == 3)
+        for (url, width) in zip(urls, [10, 20, 30]) {
+            let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+            #expect(CGImageSourceGetCount(source) == 1)
+            #expect(CGImageSourceCreateImageAtIndex(source, 0, nil)?.width == width, "\(url.lastPathComponent)")
+        }
+    }
+
     @Test func colourPagesKeepTheDocumentToneCurve() {
         let profile = ScanProfile(name: "Test", colorMode: .color, fileFormat: .multiPageTIFF)
         #expect(profile.processingOptions.documentTone)

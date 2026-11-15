@@ -271,6 +271,16 @@ struct ProfileEditor: View {
                 if profile.fileFormat == .pdf {
                     Toggle("Make PDF searchable (recognize text)", isOn: $profile.searchablePDF)
                 }
+                if profile.fileFormat != .jpeg {
+                    Toggle("Split into several files", isOn: Binding(
+                        get: { profile.pagesPerFile != nil },
+                        set: { profile.pagesPerFile = $0 ? 1 : nil }))
+                    if let pagesPerFile = profile.pagesPerFile {
+                        Stepper("One file every \(pagesPerFile) page\(pagesPerFile == 1 ? "" : "s")",
+                                value: Binding(get: { pagesPerFile }, set: { profile.pagesPerFile = $0 }),
+                                in: 1...999)
+                    }
+                }
                 if profile.fileFormat != .multiPageTIFF {
                     Picker("Compression", selection: $profile.compression) {
                         ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }

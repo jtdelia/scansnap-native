@@ -131,6 +131,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var fileFormat: FileFormat
     public var searchablePDF: Bool
     public var compression: Compression
+    /// Saved pages per file for PDF and multi-page TIFF; `nil` keeps the whole batch in one file.
+    public var pagesPerFile: Int?
     public var namePattern: FileNamePattern
     public var nextNumber: Int
     public var numberDigits: Int
@@ -150,6 +152,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         fileFormat: FileFormat = .pdf,
         searchablePDF: Bool = true,
         compression: Compression = .medium,
+        pagesPerFile: Int? = nil,
         namePattern: FileNamePattern = .dateAndTime,
         nextNumber: Int = 1,
         numberDigits: Int = 3
@@ -168,6 +171,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.fileFormat = fileFormat
         self.searchablePDF = searchablePDF
         self.compression = compression
+        self.pagesPerFile = pagesPerFile
         self.namePattern = namePattern
         self.nextNumber = nextNumber
         self.numberDigits = numberDigits
@@ -193,6 +197,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         fileFormat = try container.decodeIfPresent(FileFormat.self, forKey: .fileFormat) ?? defaults.fileFormat
         searchablePDF = try container.decodeIfPresent(Bool.self, forKey: .searchablePDF) ?? defaults.searchablePDF
         compression = try container.decodeIfPresent(Compression.self, forKey: .compression) ?? defaults.compression
+        pagesPerFile = try container.decodeIfPresent(Int.self, forKey: .pagesPerFile) ?? defaults.pagesPerFile
         namePattern = try (try? container.decodeIfPresent(FileNamePattern.self, forKey: .namePattern))
             ?? Self.convertedNamePattern(decoder.container(keyedBy: LegacyKeys.self), fileFormat: fileFormat)
         nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
