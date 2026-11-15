@@ -5,6 +5,10 @@ import Foundation
 public struct ProcessingOptions: Sendable, Equatable {
     public var flattenColumns = true
     public var cropAndStraighten = true
+    /// Crop and straighten to a print's own edges instead of to paper: works on prints darker than
+    /// the backing, never snaps to a paper size and leaves the edges unwhitened. Takes the place of
+    /// `cropAndStraighten`.
+    public var cropToPrint = false
     public var whiteBalance = true
     public var reduceBleedThrough = false
     /// Resample pages within a small tolerance of a standard paper size to exactly that size.
@@ -51,7 +55,9 @@ public enum PageProcessor {
                                options: ProcessingOptions) throws -> ProcessedPage {
         var image = CIImage(cgImage: source)
 
-        if options.cropAndStraighten {
+        if options.cropToPrint {
+            image = PrintCropper.crop(image)
+        } else if options.cropAndStraighten {
             image = cropToPaper(image, resolution: resolution, snap: options.snapToStandardSize)
         }
         // Page length is measured in the feed direction, as ScanSnap Manager does.
@@ -96,7 +102,7 @@ public enum PageProcessor {
             : renderer.createCGImage(image, from: image.extent.integral, format: .L8, colorSpace: gray)
         else { throw ImageWriterError.cannotCreateImage }
 
-        if options.cropAndStraighten, !correctsColor {
+        if options.cropAndStraighten, !options.cropToPrint, !correctsColor {
             output = cleanEdges(output, resolution: resolution)
         }
         let blank = options.skipBlankPages && inkFraction(output) < options.blankInkFraction

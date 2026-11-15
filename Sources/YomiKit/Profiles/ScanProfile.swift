@@ -141,6 +141,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var numberDigits: Int
     /// Interpret colour with the scanner's colour profile and save in Display P3.
     public var correctColor: Bool
+    /// Crop to the print's own edges instead of to paper; takes the place of `cropAndStraighten`.
+    public var cropToPrint: Bool
 
     public init(
         id: UUID = UUID(),
@@ -162,7 +164,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         subfolderPattern: FileNamePattern = [],
         nextNumber: Int = 1,
         numberDigits: Int = 3,
-        correctColor: Bool = false
+        correctColor: Bool = false,
+        cropToPrint: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -184,6 +187,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.nextNumber = nextNumber
         self.numberDigits = numberDigits
         self.correctColor = correctColor
+        self.cropToPrint = cropToPrint
     }
 
     /// Every key is optional, so scan profiles saved by any earlier version keep loading.
@@ -214,6 +218,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
         numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
         correctColor = try container.decodePhotoSetting(forKey: .correctColor, profileID: id)
+        cropToPrint = try container.decodePhotoSetting(forKey: .cropToPrint, profileID: id)
     }
 
     /// Keys that earlier versions saved and this version only reads.
@@ -247,6 +252,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     var processingOptions: ProcessingOptions {
         var options = ProcessingOptions()
         options.cropAndStraighten = cropAndStraighten
+        options.cropToPrint = cropToPrint
         options.skipBlankPages = skipBlankPages
         options.reduceBleedThrough = reduceBleedThrough
         options.autoRotate = autoRotate
@@ -273,7 +279,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
         ScanProfile(id: UUID(uuidString: id)!, name: name, quality: quality, colorMode: .color, sides: .duplex,
                     skipBlankPages: true, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg,
-                    searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage, correctColor: true)
+                    searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage, correctColor: true,
+                    cropToPrint: true)
     }
 
     /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving into `folder` at `dpi`,

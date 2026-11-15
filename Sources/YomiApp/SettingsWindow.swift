@@ -386,6 +386,7 @@ struct ProfileEditor: View {
 
             Section("Photos") {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
+                Toggle("Crop to the print's edges instead of paper size", isOn: $profile.cropToPrint)
             }
         }
         .formStyle(.grouped)
