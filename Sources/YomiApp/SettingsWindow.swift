@@ -410,7 +410,15 @@ struct ProfileEditor: View {
 
             Section("Paper and Image") {
                 Toggle("Crop to paper size and straighten", isOn: $profile.cropAndStraighten)
-                Toggle("Rotate pages automatically", isOn: $profile.autoRotate)
+                Toggle("Rotate pages automatically", isOn: Binding(
+                    get: { profile.autoRotate && !profile.rotateByFaces },
+                    set: { profile.autoRotate = $0 }))
+                    .disabled(profile.rotateByFaces)
+                if profile.rotateByFaces {
+                    Text("“Rotate photos upright using faces” is on and rotates by text when there are no faces.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Toggle("Remove blank pages", isOn: $profile.skipBlankPages)
                 Toggle("Reduce bleed-through", isOn: $profile.reduceBleedThrough)
             }
