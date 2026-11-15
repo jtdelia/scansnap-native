@@ -104,6 +104,7 @@ struct ScanProgressView: View {
             Label(message, systemImage: "checkmark.circle.fill")
                 .font(.callout)
                 .foregroundStyle(.green)
+                .lineLimit(3)
         case let .failed(message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
@@ -133,13 +134,16 @@ struct ScanProgressView: View {
 
     private var footer: some View {
         HStack {
-            if let folder = model.activeProfile?.folderURL.lastPathComponent {
+            if let folder = model.batchFolder {
                 Label(folder, systemImage: "folder").font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer()
             if model.jobState == .running {
                 Button("Stop") { model.cancelScan() }
-                    .buttonStyle(.glass(.regular.interactive()))            }
+                    .buttonStyle(.glass(.regular.interactive()))
+            }
         }
     }
 

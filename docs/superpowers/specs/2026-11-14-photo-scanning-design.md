@@ -68,7 +68,7 @@ These would make the work a failure even if every feature technically works:
 
 - The raw scan is interpreted with the S1300 colour profile and converted to Display P3 on save. The colour profile itself is not embedded ([ADR 0001](../../adr/0001-convert-photos-with-the-scanners-colour-profile.md)).
 - White balance, the document tone curve and edge whitening (`cleanEdges`) are off whenever colour correction is on, because they undo it.
-- Yomi locates the colour profile the way `Firmware.locate` finds firmware: in the ScanSnap Manager app, then in `~/Library/Application Support/Yomi`. Settings shows which colour profile is in use and offers "Choose…", which copies the chosen file into Application Support.
+- Yomi looks for the colour profile first in `~/Library/Application Support/Yomi/ColorProfiles`, where Settings puts a chosen file, then in the ScanSnap Manager app, so a colour profile chosen in Settings is used even while ScanSnap Manager is installed. Settings shows which colour profile is in use and offers "Choose…", which copies the chosen file into Application Support.
 - If colour correction is on but no colour profile is found, the scan still completes in sRGB, and the progress panel and log say colour correction was skipped.
 - Verification is by eye: a Yomi scan on screen beside the print, in daylight. A printed colour reference card is only worth buying if that leaves doubt.
 - If the check shows colours worse than without the colour profile, step 1 still ships, with colour correction off by default in the photo scan profiles, and a separate beads issue is opened to investigate what ScanSnap Manager does before applying the colour profile. Step 1 does not wait for that investigation.

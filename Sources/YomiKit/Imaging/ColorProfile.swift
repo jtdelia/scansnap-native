@@ -14,7 +14,7 @@ public enum ColorProfileError: Error, CustomStringConvertible {
 }
 
 /// The scanner maker's colour profile (Fujitsu's `ScanSnap S1300.icm`, also used for the S1300i).
-/// It is never bundled: Yomi finds it in ScanSnap Manager or where Settings installed it.
+/// It is never bundled: Yomi finds it where Settings installed it or in ScanSnap Manager.
 public struct ColorProfile: @unchecked Sendable {
     public let url: URL
     public let colorSpace: CGColorSpace
@@ -32,10 +32,11 @@ public struct ColorProfile: @unchecked Sendable {
     public static let installFolder = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Library/Application Support/Yomi/ColorProfiles", isDirectory: true)
 
-    /// Files are tried as they are; folders are searched for `.icc` and `.icm` files.
+    /// Files are tried as they are; folders are searched for `.icc` and `.icm` files. A colour profile chosen in
+    /// Settings comes first, so it is used even while ScanSnap Manager is installed.
     public static let searchLocations: [URL] = [
-        URL(fileURLWithPath: "/Applications/ScanSnap/ScanSnap Manager.app/Contents/Resources/ScanSnap S1300.icm"),
         installFolder,
+        URL(fileURLWithPath: "/Applications/ScanSnap/ScanSnap Manager.app/Contents/Resources/ScanSnap S1300.icm"),
     ]
 
     /// The first usable colour profile in `locations`, in order.
@@ -94,8 +95,8 @@ public enum ColorCorrection: @unchecked Sendable {
         }
     }
 
-    /// Shown in the progress panel.
-    public var warning: String? {
+    /// Shown in the progress panel beside a finished batch.
+    public var notice: String? {
         if case .skipped = self { return "Color correction was skipped: the scanner's color profile was not found." }
         return nil
     }

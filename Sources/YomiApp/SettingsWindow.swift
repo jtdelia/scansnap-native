@@ -138,6 +138,7 @@ private extension ScanProfile {
     }
 }
 
+/// Dims glass while the window is not in front. Apply it only to glass, never to text, which keeps full contrast.
 private struct DimmedWhenInactive: ViewModifier {
     @Environment(\.appearsActive) private var appearsActive
 
@@ -276,10 +277,16 @@ struct ProfileEditor: View {
             }
 
             Section("Save To") {
-                Picker("Save to", selection: $profile.saveTo) {
-                    ForEach(ScanProfile.SaveDestination.allCases, id: \.self) { Text($0.title).tag($0) }
+                Picker("Save to", selection: Binding(get: { profile.destination }, set: { profile.saveTo = $0 })) {
+                    ForEach(profile.fileFormat.savesPagesSeparately ? ScanProfile.SaveDestination.allCases : [.folder],
+                            id: \.self) { Text($0.title).tag($0) }
                 }
-                if profile.saveTo.savesToPhotos {
+                if !profile.fileFormat.savesPagesSeparately {
+                    Text("Photos can't import PDF or multi-page TIFF files, so they're saved to the folder.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if profile.destination.savesToPhotos {
                     LabeledContent("Album") {
                         HStack {
                             TextField("Album", text: $profile.photosAlbum, prompt: Text("None (library only)"))
@@ -300,17 +307,14 @@ struct ProfileEditor: View {
                         }
                     }
                 }
-                LabeledContent(profile.saveTo.savesToFolder ? "Folder" : "Folder if Photos fails") {
+                LabeledContent(profile.destination.savesToFolder ? "Folder" : "Folder if Photos fails") {
                     HStack {
                         Text(profile.folderURL.path(percentEncoded: false))
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .foregroundStyle(.secondary)
                         Button("Choose…", action: chooseFolder)
-                        Button {
-                            try? FileManager.default.createDirectory(at: profile.folderURL, withIntermediateDirectories: true)
-                            NSWorkspace.shared.open(profile.folderURL)
-                        } label: { Image(systemName: "arrow.up.forward.app") }
+                        Button { model.openFolder(of: profile) } label: { Image(systemName: "arrow.up.forward.app") }
                             .help("Open folder")
                     }
                 }
@@ -404,7 +408,15 @@ struct ProfileEditor: View {
 
             Section("Paper and Image") {
                 Toggle("Crop to paper size and straighten", isOn: $profile.cropAndStraighten)
-                Toggle("Rotate pages automatically", isOn: $profile.autoRotate)
+                Toggle("Rotate pages automatically", isOn: Binding(
+                    get: { profile.autoRotate && !profile.rotateByFaces },
+                    set: { profile.autoRotate = $0 }))
+                    .disabled(profile.rotateByFaces)
+                if profile.rotateByFaces {
+                    Text("“Rotate photos upright using faces” is on and rotates by text when there are no faces.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Toggle("Remove blank pages", isOn: $profile.skipBlankPages)
                 Toggle("Reduce bleed-through", isOn: $profile.reduceBleedThrough)
             }
@@ -413,7 +425,9 @@ struct ProfileEditor: View {
                 Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
                 Toggle("Crop to the print's edges instead of paper size", isOn: $profile.cropToPrint)
                 Toggle("Rotate photos upright using faces", isOn: $profile.rotateByFaces)
-                Toggle("Auto-enhance, keeping an untouched copy named “_original”", isOn: $profile.autoEnhance)
+                if profile.fileFormat.savesPagesSeparately {
+                    Toggle("Auto-enhance, keeping the untouched original", isOn: $profile.autoEnhance)
+                }
                 Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
                 Toggle("Save writing on the back as the photo's caption, not the back itself",
                        isOn: $profile.backCaptions)
@@ -459,8 +473,11 @@ private struct ProfileSummaryBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
-        .dimmedWhenInactive()
+        .background {
+            Color.clear
+                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                .dimmedWhenInactive()
+        }
         .padding(.horizontal, 20)
         .padding(.top, 8)
     }

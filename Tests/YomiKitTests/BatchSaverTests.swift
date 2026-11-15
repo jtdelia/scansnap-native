@@ -20,12 +20,16 @@ struct BatchSaverTests {
     /// Records what it was asked to add, or fails with `error`.
     private final class FakePhotoLibrary: PhotoLibrary, @unchecked Sendable {
         let error: PhotoLibraryError?
+        let unenhanced: Int
         private(set) var added: [(photos: [AddedPhoto], album: String)] = []
         private(set) var filesExisted = true
 
-        init(failingWith error: PhotoLibraryError? = nil) { self.error = error }
+        init(failingWith error: PhotoLibraryError? = nil, unenhanced: Int = 0) {
+            self.error = error
+            self.unenhanced = unenhanced
+        }
 
-        func add(_ photos: [PhotoImport], album: String) throws {
+        func add(_ photos: [PhotoImport], album: String) throws -> Int {
             let files = photos.flatMap { [$0.original] + ($0.edited.map { [$0] } ?? []) }
             filesExisted = files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
             if let error { throw error }
@@ -35,6 +39,7 @@ struct BatchSaverTests {
                            edited: photo.edited?.lastPathComponent,
                            editedData: photo.edited.flatMap { try? Data(contentsOf: $0) })
             }, album))
+            return unenhanced
         }
 
         /// Names of the photos added in each call.
@@ -117,6 +122,51 @@ struct BatchSaverTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == Self.names)
         #expect(saved.files == Self.names.map { folder.appendingPathComponent($0) })
         #expect(saved.warning?.contains("The album “Family” couldn't be created.") == true)
+        #expect(saved.warning?.hasSuffix("Saved to \(profile.folderURL.lastPathComponent)/2026 instead.") == true)
+        #expect(saved.place == "\(profile.folderURL.lastPathComponent)/2026")
+        #expect(saved.folder == folder)
+    }
+
+    @Test func subfolderBatchNamesTheSubfolderItWentTo() throws {
+        var profile = try Self.profile(.folderAndPhotos)
+        profile.subfolderPattern = [.year, .text("/"), .month]
+        let saved = try Self.save(profile, library: FakePhotoLibrary())
+        #expect(saved.place == "\(profile.folderURL.lastPathComponent)/2026/11 and Photos")
+        #expect(saved.folder == profile.folderURL.appendingPathComponent("2026/11", isDirectory: true))
+        #expect(DocumentWriter.saveFolder(for: profile, date: Self.date) == saved.folder)
+    }
+
+    @Test func photosOnlyBatchHasNoFolder() throws {
+        #expect(try Self.save(Self.profile(.photos), library: FakePhotoLibrary()).folder == nil)
+    }
+
+    @Test func photosOnlyWhenTheFolderCannotBeWrittenEitherSaysWhereTheBatchIs() throws {
+        var profile = try Self.profile(.photos)
+        let blocker = FileManager.default.temporaryDirectory.appendingPathComponent("YomiBatchSaverTests-\(UUID())")
+        try Data().write(to: blocker)
+        profile.folderPath = blocker.appendingPathComponent("Scans").path
+        let saved = try Self.save(profile, library: FakePhotoLibrary(failingWith: .accessDenied))
+        let staging = try #require(saved.files.first?.deletingLastPathComponent())
+        #expect(saved.files.map(\.lastPathComponent) == Self.names)
+        #expect(saved.files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+        #expect(staging.standardizedFileURL.path.hasPrefix(FileManager.default.temporaryDirectory.standardizedFileURL.path))
+        #expect(saved.place == staging.path)
+        #expect(saved.warning?.contains("Couldn't save to Scans either") == true, "\(saved.warning ?? "")")
+        #expect(saved.warning?.contains(staging.path) == true, "\(saved.warning ?? "")")
+    }
+
+    @Test(arguments: [ScanProfile.FileFormat.pdf, .multiPageTIFF], [ScanProfile.SaveDestination.photos, .folderAndPhotos])
+    func formatsPhotosCannotImportSaveToTheFolder(format: ScanProfile.FileFormat,
+                                                  saveTo: ScanProfile.SaveDestination) throws {
+        var profile = try Self.profile(saveTo)
+        profile.fileFormat = format
+        profile.searchablePDF = false
+        let library = FakePhotoLibrary()
+        let saved = try Self.save(profile, library: library)
+        #expect(library.added.isEmpty)
+        #expect(Self.folderContents(profile) == ["2026-11-14 21.42.05_001.\(format.fileExtension)"])
+        #expect(saved.warning == nil)
+        #expect(saved.place == profile.folderURL.lastPathComponent)
     }
 
     @Test func folderOnlyNeverUsesPhotos() throws {
@@ -194,6 +244,17 @@ struct BatchSaverTests {
         #expect(Self.folderContents(profile).count == 4)
         #expect(saved.files.map(\.lastPathComponent) == Self.names)
         #expect(saved.warning == nil)
+    }
+
+    @Test(arguments: [(ScanProfile.SaveDestination.photos, 0), (.folderAndPhotos, 4)])
+    func photosAddedWithoutTheirEnhancementCountAsSaved(saveTo: ScanProfile.SaveDestination, files: Int) async throws {
+        let profile = try Self.profile(saveTo, autoEnhance: true)
+        let library = FakePhotoLibrary(unenhanced: 2)
+        let saved = try await Self.saveEnhanced(profile, library: library)
+        #expect(library.added.count == 1)
+        #expect(Self.folderContents(profile).count == files)
+        #expect(saved.warning == nil)
+        #expect(saved.notice == "Saved to Photos without enhancement for 2 photos.")
     }
 
     @Test func withoutAPhotoLibraryTheBatchGoesToTheFolder() throws {

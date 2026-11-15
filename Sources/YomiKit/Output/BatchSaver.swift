@@ -1,10 +1,10 @@
 import Foundation
 
-/// One photo to add to Photos: the untouched scan, and the enhanced version of it when auto-enhance made one.
+/// One photo to add to Photos: the untouched page, and the enhanced version of it when auto-enhance made one.
 public struct PhotoImport: Sendable, Equatable {
-    /// The scan as it came from the scanner, which Photos keeps as the photo's original.
+    /// The page as Yomi processed it, before auto-enhance, which Photos keeps as the photo's original.
     public let original: URL
-    /// The enhanced scan, which Photos shows as an edit that Revert to Original undoes.
+    /// The enhanced page, which Photos shows as an edit that Revert to Original undoes.
     public let edited: URL?
 
     /// The file name Photos records for the photo, without `_original`.
@@ -19,8 +19,9 @@ public struct PhotoImport: Sendable, Equatable {
 /// Apple Photos, as the app reaches it through PhotoKit.
 public protocol PhotoLibrary: Sendable {
     /// Adds one photo for each of `photos` to the library, and to the album named `album` unless it is empty,
-    /// creating the album when there is none with that name.
-    func add(_ photos: [PhotoImport], album: String) throws
+    /// creating the album when there is none with that name. Returns how many photos were added without the
+    /// enhancement they were given.
+    func add(_ photos: [PhotoImport], album: String) throws -> Int
 }
 
 public enum PhotoLibraryError: Error, Equatable, CustomStringConvertible {
@@ -45,25 +46,33 @@ public struct SavedBatch: Sendable {
     public let warning: String?
     /// Where the batch went, for "Saved 3 pages to …".
     public let place: String
+    /// The folder holding `files`, or `nil` when the batch went only to Photos.
+    public var folder: URL? = nil
+    /// Something the batch saved without, that is still worth saying, such as Photos dropping an enhancement.
+    public var notice: String? = nil
 }
 
 /// Saves a finished batch to the scan profile's folder, Photos, or both.
 public enum BatchSaver {
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
                             date: Date = Date(), progress: ((String) -> Void)? = nil) throws -> SavedBatch {
-        let folder = profile.folderURL.lastPathComponent
-        guard profile.saveTo.savesToPhotos else {
+        let folder = DocumentWriter.folderName(for: profile, date: date)
+        let folderURL = DocumentWriter.saveFolder(for: profile, date: date)
+        guard profile.destination.savesToPhotos else {
             let files = try DocumentWriter.save(pages, profile: profile, date: date, progress: progress)
-            return SavedBatch(files: files, warning: nil, place: folder)
+            return SavedBatch(files: files, warning: nil, place: folder, folder: folderURL)
         }
-        if profile.saveTo.savesToFolder {
+        if profile.destination.savesToFolder {
             let saved = try DocumentWriter.saveFiles(pages, profile: profile, date: date, progress: progress)
             let files = saved.map(\.url)
-            if let error = addToPhotos(saved, profile: profile, library: photoLibrary) {
+            switch addToPhotos(saved, profile: profile, library: photoLibrary) {
+            case let .failure(error):
                 return SavedBatch(files: files, warning: "Couldn't save to Photos: \(error) Saved to \(folder) only.",
-                                  place: folder)
+                                  place: folder, folder: folderURL)
+            case let .success(unenhanced):
+                return SavedBatch(files: files, warning: nil, place: "\(folder) and \(photosPlace(profile))",
+                                  folder: folderURL, notice: enhancementNotice(unenhanced))
             }
-            return SavedBatch(files: files, warning: nil, place: "\(folder) and \(photosPlace(profile))")
         }
         let staging = FileManager.default.temporaryDirectory
             .appendingPathComponent("Yomi-\(UUID().uuidString)", isDirectory: true)
@@ -71,50 +80,67 @@ public enum BatchSaver {
         staged.folderPath = staging.path
         staged.subfolderPattern = []
         let saved = try DocumentWriter.saveFiles(pages, profile: staged, date: date, progress: progress)
-        if let error = addToPhotos(saved, profile: profile, library: photoLibrary) {
-            return try SavedBatch(files: move(saved, from: staging, into: profile, date: date),
-                                  warning: "Couldn't save to Photos: \(error) Saved to \(folder) instead.",
-                                  place: folder)
+        let added = addToPhotos(saved, profile: profile, library: photoLibrary)
+        if case let .failure(error) = added {
+            let reason = "Couldn't save to Photos: \(error)"
+            do {
+                let files = try copy(saved, into: profile, date: date)
+                try? FileManager.default.removeItem(at: staging)
+                return SavedBatch(files: files, warning: "\(reason) Saved to \(folder) instead.", place: folder,
+                                  folder: folderURL)
+            } catch {
+                return SavedBatch(files: saved.map(\.url),
+                                  warning: "\(reason) Couldn't save to \(folder) either (\(error.localizedDescription)). "
+                                      + "The batch is in \(staging.path), which macOS empties after a few days.",
+                                  place: staging.path, folder: staging)
+            }
         }
         try? FileManager.default.removeItem(at: staging)
-        return SavedBatch(files: [], warning: nil, place: photosPlace(profile))
+        return SavedBatch(files: [], warning: nil, place: photosPlace(profile),
+                          notice: enhancementNotice((try? added.get()) ?? 0))
     }
 
-    /// Adds the saved files to Photos, one photo per file, and returns why that failed, or `nil` when it worked.
+    /// Adds the saved files to Photos, one photo per file, and returns how many lost their enhancement.
     private static func addToPhotos(_ saved: [DocumentWriter.SavedFile], profile: ScanProfile,
-                                    library: (any PhotoLibrary)?) -> Error? {
+                                    library: (any PhotoLibrary)?) -> Result<Int, Error> {
         let photos = saved.map { file in
             file.original.map { PhotoImport(original: $0, edited: file.url) } ?? PhotoImport(original: file.url)
         }
-        do {
+        return Result {
             guard let library else { throw PhotoLibraryError.failed("Saving to Photos needs the Yomi app.") }
-            try library.add(photos, album: profile.photosAlbum)
-            return nil
-        } catch {
-            return error
+            return try library.add(photos, album: profile.photosAlbum)
         }
     }
 
-    /// Moves staged files, and their `_original` copies, into the folder the scan profile saves in, numbering any
-    /// that clash.
-    private static func move(_ files: [DocumentWriter.SavedFile], from staging: URL, into profile: ScanProfile,
-                             date: Date) throws -> [URL] {
-        let folder = DocumentWriter.saveFolder(profile, date: date)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let moved = try files.map { file in
-            let url = DocumentWriter.uniqueURL(in: folder, base: file.url.deletingPathExtension().lastPathComponent,
-                                               ext: file.url.pathExtension)
-            try FileManager.default.moveItem(at: file.url, to: url)
-            if let original = file.original {
-                let base = url.deletingPathExtension().lastPathComponent + "_original"
-                try FileManager.default.moveItem(at: original,
-                                                 to: DocumentWriter.uniqueURL(in: folder, base: base,
-                                                                              ext: original.pathExtension))
+    private static func enhancementNotice(_ unenhanced: Int) -> String? {
+        unenhanced == 0 ? nil : "Saved to Photos without enhancement for \(unenhanced) photo\(unenhanced == 1 ? "" : "s")."
+    }
+
+    /// Copies staged files, and their `_original` copies, into the folder the scan profile saves in, numbering any
+    /// that clash. When a copy fails, the copies already made are removed and the staged files are left alone.
+    private static func copy(_ files: [DocumentWriter.SavedFile], into profile: ScanProfile, date: Date) throws -> [URL] {
+        let fm = FileManager.default
+        let folder = DocumentWriter.saveFolder(for: profile, date: date)
+        var copied: [URL] = []
+        do {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            return try files.map { file in
+                let format = profile.fileFormat
+                let name = DocumentWriter.unclashedName(in: folder, file.name, format: format)
+                let url = folder.appendingPathComponent(DocumentWriter.fileName(name, format: format))
+                try fm.copyItem(at: file.url, to: url)
+                copied.append(url)
+                if let original = file.original {
+                    let originalURL = DocumentWriter.originalURL(in: folder, for: name, format: format)
+                    try fm.copyItem(at: original, to: originalURL)
+                    copied.append(originalURL)
+                }
+                return url
             }
-            return url
+        } catch {
+            copied.forEach { try? fm.removeItem(at: $0) }
+            throw error
         }
-        try? FileManager.default.removeItem(at: staging)
-        return moved
     }
 
     private static func photosPlace(_ profile: ScanProfile) -> String {

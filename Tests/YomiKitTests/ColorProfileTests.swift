@@ -39,6 +39,13 @@ struct ColorProfileTests {
         #expect(ColorProfile.locate(in: [first.appendingPathExtension("missing"), second])?.url.lastPathComponent == "Chosen.icc")
     }
 
+    @Test func colorProfileChosenInSettingsIsUsedBeforeScanSnapManagers() {
+        #expect(ColorProfile.searchLocations.map(\.path) == [
+            ColorProfile.installFolder.path,
+            "/Applications/ScanSnap/ScanSnap Manager.app/Contents/Resources/ScanSnap S1300.icm",
+        ])
+    }
+
     @Test func installReplacesTheChosenProfile() throws {
         let folder = try temporaryFolder().appendingPathComponent("ColorProfiles")
         _ = try ColorProfile.install(from: Self.displayP3, into: folder)

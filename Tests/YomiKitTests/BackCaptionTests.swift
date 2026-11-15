@@ -179,15 +179,24 @@ struct BackCaptionTests {
         #expect(try await Self.process(front: Self.picture, back: back).pages.first?.caption == date)
     }
 
-    @Test func palePictureIsNeverDroppedAsBlank() async throws {
-        var withoutCaptions = ScanProfile.builtInPhotoProfiles[0]
-        withoutCaptions.backCaptions = false
-        let pale = Side(picture: .pale)
-        #expect(try await Self.process(front: pale, back: Self.blank, profile: withoutCaptions).pages.isEmpty)
-
-        let sheet = try await Self.process(front: pale, back: Self.blank)
+    @Test(arguments: [("photo cropping", true, false), ("back captions", false, true), ("both", true, true)])
+    func palePictureIsNeverDroppedAsBlank(_ name: String, cropToPrint: Bool, backCaptions: Bool) async throws {
+        var profile = ScanProfile.builtInPhotoProfiles[0]
+        profile.cropToPrint = cropToPrint
+        profile.backCaptions = backCaptions
+        let sheet = try await Self.process(front: Side(picture: .pale), back: Self.blank, profile: profile)
         #expect(sheet.pages.map(\.source) == [.front])
         #expect(sheet.blankSides == 1)
+    }
+
+    @Test(arguments: [true, false])
+    func backThatLooksLikeAPictureIsSavedAsAPhoto(findPictureSide: Bool) async throws {
+        var profile = ScanProfile.builtInPhotoProfiles[0]
+        profile.findPictureSide = findPictureSide
+        let sheet = try await Self.process(front: Self.picture, back: Self.picture, profile: profile)
+        #expect(sheet.pages.map(\.source) == [.front, .back])
+        #expect(sheet.pages.allSatisfy { $0.caption == nil })
+        #expect(sheet.blankSides == 0)
     }
 
     // MARK: Saved files
@@ -206,7 +215,7 @@ struct BackCaptionTests {
         context.fill(CGRect(x: 0, y: 0, width: 120, height: 90))
         let page = ProcessedPage(image: context.makeImage()!, resolution: 300, isBlank: false, source: .front,
                                  isColor: true, caption: caption)
-        _ = try await offTheTaskPool { try DocumentWriter.save([page], profile: profile) }
+        _ = try await offTheTaskPool { [profile] in try DocumentWriter.save([page], profile: profile) }
         return try FileManager.default.contentsOfDirectory(atPath: folder.path).reduce(into: [:]) { result, name in
             let source = try #require(CGImageSourceCreateWithURL(folder.appendingPathComponent(name) as CFURL, nil))
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
@@ -239,6 +248,34 @@ struct BackCaptionTests {
         #expect(sheet.pages.map(\.source) == [.front])
         #expect(sheet.pages.first?.caption == nil)
         #expect(sheet.blankSides == 0)
+    }
+
+    // MARK: Recognized lines
+
+    @Test(arguments: [
+        ["ORDER 0423 FRAME 17"], ["NNN 12 +1"], ["ROLL 4 NEG 12"], ["Lab 2 PRINT 3"], ["PROCESS C41 KX"], ["NNN"],
+    ])
+    func labPrintingIsNotACaption(lines: [String]) {
+        #expect(BackCaptionReader.handwrittenLines(lines) == [])
+    }
+
+    @Test func handwritingNextToLabPrintingIsKept() {
+        let lines = ["MOM AND DAD", "Max the lab puppy", "JULY 4, 1962", "ORDER 0423 FRAME 17"]
+        #expect(BackCaptionReader.handwrittenLines(lines) == ["MOM AND DAD", "Max the lab puppy", "JULY 4, 1962"])
+    }
+
+    @Test(arguments: [["KODAK ROYAL PAPER"], ["FUJICOLOR CRYSTAL ARCHIVE PAPER"], ["Kodak Royal Paper", "Kodak"]])
+    func brandPhrasePrintedOnceIsNotACaption(lines: [String]) {
+        #expect(BackCaptionReader.handwrittenLines(lines) == [])
+    }
+
+    @Test func handwrittenWordsThatPaperMakersAlsoUseAreKept() {
+        let lines = ["Crystal", "Royal Albert Hall", "our archive paper", "KODAK ROYAL PAPER"]
+        #expect(BackCaptionReader.handwrittenLines(lines) == ["Crystal", "Royal Albert Hall", "our archive paper"])
+    }
+
+    @Test func brandPhraseIsTakenOutOfHandwritingItCrosses() {
+        #expect(BackCaptionReader.handwrittenLines(["at Lake Tahoe KODAK ROYAL PAPER"]) == ["at Lake Tahoe"])
     }
 
     @Test(arguments: [("blank", []), ("brand printing", brandPrinting), ("lab printing", labPrinting)])

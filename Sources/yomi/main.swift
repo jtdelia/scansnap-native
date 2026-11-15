@@ -146,7 +146,7 @@ func scanPhotos(_ engine: ScanEngine, profile: ScanProfile, keepRaw: Bool) throw
     print(String(format: "Scanned %d sheet(s), %d page(s) in %.1f s → %@", sheets, processed.count,
                  Date().timeIntervalSince(start), profile.folderPath))
     files.forEach { print("  \($0.lastPathComponent)") }
-    if let warning = correction.warning { print(warning) }
+    if let notice = correction.notice { print(notice) }
 }
 
 do {
@@ -199,7 +199,7 @@ do {
         let folder = URL(fileURLWithPath: arguments.first { $0.hasPrefix("/") } ?? "/tmp/yomi")
         let photoProfile = photo ? ScanProfile.commandLinePhoto(dpi: dpi, folder: folder) : nil
         if photo, photoProfile == nil {
-            print("--photo scans at 150, 200, 300 or 600 dpi")
+            print(ScanProfile.commandLinePhotoResolutionMessage)
             exit(1)
         }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

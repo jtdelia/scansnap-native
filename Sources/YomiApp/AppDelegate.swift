@@ -60,9 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openScanFolder() {
-        guard let folder = model.buttonProfile?.folderURL else { return }
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(folder)
+        guard let profile = model.buttonProfile else { return }
+        model.openFolder(of: profile)
     }
 
     @objc func showSettings() { SettingsWindowController.shared.show(model: model) }

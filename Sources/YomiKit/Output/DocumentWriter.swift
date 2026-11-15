@@ -15,33 +15,41 @@ public enum DocumentWriter {
     struct SavedFile {
         let url: URL
         let original: URL?
+        /// The file's name: the part from the name pattern and the page and clash numbers after it.
+        let name: FileName
+    }
+
+    /// A file name before its extension. Only `stem`, the part from the name pattern, is ever shortened; the
+    /// page, clash and `_original` suffixes Yomi adds are always kept whole.
+    struct FileName {
+        var stem: String
+        var suffix = ""
     }
 
     /// Like `save`, also telling which `_original` copy belongs to each file.
     static func saveFiles(_ pages: [ProcessedPage], profile: ScanProfile, date: Date,
                           progress: ((String) -> Void)?) throws -> [SavedFile] {
         guard !pages.isEmpty else { return [] }
-        let folder = saveFolder(profile, date: date)
+        let folder = saveFolder(for: profile, date: date)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let starts = firstPages(pages: pages.count, profile: profile)
         let names = baseNames(profile, firstPages: starts, date: date)
-        let ext = profile.fileFormat.fileExtension
 
         return try starts.indices.map { file in
             let end = file + 1 < starts.count ? starts[file + 1] - 1 : pages.count
             let offset = starts[file] - 1
             let filePages = Array(pages[offset..<end])
-            let url = uniqueURL(in: folder, base: names[file], ext: ext)
-            guard profile.autoEnhance else {
+            let name = unclashedName(in: folder, names[file], format: profile.fileFormat)
+            let url = folder.appendingPathComponent(fileName(name, format: profile.fileFormat))
+            guard profile.enhancesPhotos else {
                 try write(filePages, to: url, profile: profile, offset: offset, total: pages.count, progress: progress)
-                return SavedFile(url: url, original: nil)
+                return SavedFile(url: url, original: nil, name: name)
             }
             try write(filePages.map(AutoEnhancer.enhance), to: url, profile: profile, offset: offset,
                       total: pages.count, progress: progress)
-            let original = uniqueURL(in: folder, base: url.deletingPathExtension().lastPathComponent + "_original",
-                                     ext: ext)
+            let original = originalURL(in: folder, for: name, format: profile.fileFormat)
             try write(filePages, to: original, profile: profile, offset: offset, total: pages.count, progress: progress)
-            return SavedFile(url: url, original: original)
+            return SavedFile(url: url, original: original, name: name)
         }
     }
 
@@ -79,7 +87,7 @@ public enum DocumentWriter {
     /// Name of the first file a two-page batch scanned at `date` would get, before clash suffixes.
     public static func exampleFileName(for profile: ScanProfile, date: Date = Date()) -> String {
         let name = baseNames(profile, firstPages: firstPages(pages: 2, profile: profile), date: date)[0]
-        return "\(name).\(profile.fileFormat.fileExtension)"
+        return fileName(name, format: profile.fileFormat)
     }
 
     /// The batch's page number of the first page in each file the batch writes.
@@ -96,8 +104,13 @@ public enum DocumentWriter {
     }
 
     /// The folder a batch scanned at `date` is saved in.
-    static func saveFolder(_ profile: ScanProfile, date: Date) -> URL {
+    public static func saveFolder(for profile: ScanProfile, date: Date = Date()) -> URL {
         subfolders(profile, date: date).reduce(profile.folderURL) { $0.appendingPathComponent($1, isDirectory: true) }
+    }
+
+    /// The scan profile's folder name and the subfolders a batch scanned at `date` goes into, such as `Yomi/2026/11`.
+    public static func folderName(for profile: ScanProfile, date: Date = Date()) -> String {
+        ([profile.folderURL.lastPathComponent] + subfolders(profile, date: date)).joined(separator: "/")
     }
 
     /// Folder levels from the subfolder pattern. Only typed `/` starts a new level, and levels that are empty,
@@ -109,12 +122,12 @@ public enum DocumentWriter {
             if case .text = piece { true } else { FileNamePattern.Piece.batchWide.contains(piece) }
         })
         return pattern.render(values).split(separator: "/")
-            .map { fileSafe(String($0)) }
+            .map { shortened(fileSafe(String($0)), toBytes: maxNameBytes) }
             .filter { !["", ".", ".."].contains($0) }
     }
 
     /// Names, without extension or clash number, for files starting at `firstPages`.
-    static func baseNames(_ profile: ScanProfile, firstPages: [Int], date: Date) -> [String] {
+    static func baseNames(_ profile: ScanProfile, firstPages: [Int], date: Date) -> [FileName] {
         firstPages.enumerated().map { index, page in
             let values = FileNamePattern.Values(date: date, profileName: profile.name,
                                                 runningNumber: profile.nextNumber + index,
@@ -125,38 +138,60 @@ public enum DocumentWriter {
                 pattern = .dateAndTime
                 name = fileSafe(pattern.render(values))
             }
-            if firstPages.count > 1, !pattern.numbersFiles {
-                name += String(format: "_%03d", page)
-            }
-            return name
+            let suffix = firstPages.count > 1 && !pattern.numbersFiles ? String(format: "_%03d", page) : ""
+            return FileName(stem: name, suffix: suffix)
         }
     }
 
-    /// Longest name, in bytes as the file system stores it, leaving room under macOS's 255-byte limit
-    /// for a page number, clash number and extension.
-    private static let maxNameBytes = 200
+    /// macOS's limit for a file or folder name, in bytes as the file system stores it. PDFs are written straight to
+    /// their file; ImageIO writes images through a temporary file whose name is 8 bytes longer, so image file
+    /// names stop at 247 bytes.
+    private static let maxNameBytes = 255
+    private static let imageIOHeadroom = 8
 
-    /// Replaces the characters macOS does not allow in file names and shortens names that are too long.
+    /// Replaces the characters macOS does not allow in file names.
     static func fileSafe(_ name: String) -> String {
-        let name = name.replacingOccurrences(of: "/", with: "-")
+        name.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        var bytes = 0
-        let kept = name.prefix { character in
-            bytes += String(character).decomposedStringWithCanonicalMapping.utf8.count
-            return bytes <= maxNameBytes
-        }
-        return kept.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func uniqueURL(in folder: URL, base: String, ext: String) -> URL {
-        var url = folder.appendingPathComponent(base).appendingPathExtension(ext)
+    /// `name` with the format's extension, its stem shortened only as far as the file system's limit needs.
+    static func fileName(_ name: FileName, format: ScanProfile.FileFormat) -> String {
+        let tail = "\(name.suffix).\(format.fileExtension)"
+        let limit = format == .pdf ? maxNameBytes : maxNameBytes - imageIOHeadroom
+        return shortened(name.stem, toBytes: limit - byteCount(tail)) + tail
+    }
+
+    private static func byteCount(_ text: String) -> Int {
+        text.decomposedStringWithCanonicalMapping.utf8.count
+    }
+
+    /// `text` unchanged when it fits in `limit` bytes, otherwise cut to fit, without trailing spaces.
+    private static func shortened(_ text: String, toBytes limit: Int) -> String {
+        guard byteCount(text) > limit else { return text }
+        var bytes = 0
+        return text.prefix { character in
+            bytes += byteCount(String(character))
+            return bytes <= limit
+        }.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// `name`, with ` (2)`, ` (3)`… added to its suffix until no file in `folder` has it.
+    static func unclashedName(in folder: URL, _ name: FileName, format: ScanProfile.FileFormat) -> FileName {
+        var candidate = name
         var counter = 2
-        while FileManager.default.fileExists(atPath: url.path) {
-            url = folder.appendingPathComponent("\(base) (\(counter))").appendingPathExtension(ext)
+        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(fileName(candidate, format: format)).path) {
+            candidate.suffix = "\(name.suffix) (\(counter))"
             counter += 1
         }
-        return url
+        return candidate
+    }
+
+    /// Where the untouched copy of the file called `name` goes: the same name with `_original` added.
+    static func originalURL(in folder: URL, for name: FileName, format: ScanProfile.FileFormat) -> URL {
+        let original = FileName(stem: name.stem, suffix: name.suffix + "_original")
+        return folder.appendingPathComponent(fileName(unclashedName(in: folder, original, format: format), format: format))
     }
 }
 

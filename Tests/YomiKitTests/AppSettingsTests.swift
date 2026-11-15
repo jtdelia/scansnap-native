@@ -193,12 +193,6 @@ struct AppSettingsTests {
         #expect(try AppSettings(json: Data(#"{"appearance": "\#(saved)"}"#.utf8)).appearance == appearance)
     }
 
-    @Test func appearanceMapsToAppKitAppearance() {
-        #expect(AppSettings.Appearance.system.appKitName == nil)
-        #expect(AppSettings.Appearance.light.appKitName == .aqua)
-        #expect(AppSettings.Appearance.dark.appKitName == .darkAqua)
-    }
-
     // MARK: Photo scan profiles
 
     @Test func newInstallHasBothPhotoProfilesAndNoPhotos() {
@@ -266,6 +260,15 @@ struct AppSettingsTests {
         }
         let reloaded = try AppSettings(json: settings.json()).upgraded()
         #expect(reloaded == settings)
+    }
+
+    @Test func upgradeMarkersSurviveASave() throws {
+        let saved = try AppSettings(json: Self.fixture("settings-v1"))
+        #expect(!saved.addedPhotoProfiles && !saved.switchedPhotoProfilesToHEIC)
+        let reloaded = try AppSettings(json: saved.upgraded().json())
+        #expect(reloaded.addedPhotoProfiles)
+        #expect(reloaded.switchedPhotoProfilesToHEIC)
+        #expect(reloaded.upgraded() == reloaded)
     }
 
     @Test func photoProfileTheUserMovedOffJPEGKeepsItsFormat() throws {

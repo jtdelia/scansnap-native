@@ -54,10 +54,13 @@ struct DocumentOutputTests {
                     searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage),
     ]
 
+    /// Auto-rotate reads text with Vision, so the page is processed off the task pool.
     @Test(arguments: profiles.map(\.name))
-    func builtInProfileOutputIsUnchanged(name: String) throws {
+    func builtInProfileOutputIsUnchanged(name: String) async throws {
         let profile = try #require(Self.profiles.first { $0.name == name })
-        let page = try PageProcessor.process(Self.syntheticPage(), options: profile.processingOptions)
+        let page = try await offTheTaskPool {
+            try PageProcessor.process(Self.syntheticPage(), options: profile.processingOptions)
+        }
         let fingerprint = try Self.fingerprint(page)
         #expect(fingerprint == Self.expected[name])
     }

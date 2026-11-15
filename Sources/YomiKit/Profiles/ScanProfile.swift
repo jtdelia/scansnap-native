@@ -190,8 +190,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     /// Save the picture side of a print fed back-side-first as the photo, keeping the feed
     /// direction whenever the sides are not clearly the wrong way round.
     public var findPictureSide: Bool
-    /// Save writing read from a print's back as the photo's caption. The back is never saved, and the
-    /// picture side is never dropped as blank.
+    /// Save writing read from a print's back as the photo's caption. A back that is mostly plain paper is never
+    /// saved; a back that looks like a picture is saved as a photo instead of being read.
     public var backCaptions: Bool
 
     public init(
@@ -307,6 +307,13 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
 
     public var folderURL: URL { URL(fileURLWithPath: folderPath, isDirectory: true) }
 
+    /// Where batches go. Photos imports only formats that save each page as its own image, so PDF and multi-page
+    /// TIFF always go to the folder.
+    public var destination: SaveDestination { fileFormat.savesPagesSeparately ? saveTo : .folder }
+
+    /// Whether files are saved auto-enhanced. Only formats that save each page as its own image are enhanced.
+    public var enhancesPhotos: Bool { autoEnhance && fileFormat.savesPagesSeparately }
+
     /// One-line summary for the progress panel and profile list.
     public var summary: String {
         var parts = [quality.shortTitle, colorMode.title, sides == .duplex ? "Duplex" : "Simplex"]
@@ -337,20 +344,20 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
 
     /// IDs of the built-in "Photos – Quick" and "Photos – Keepers" scan profiles. Never change
     /// them: saved scan profiles with these IDs get new photo settings switched on.
-    public static let builtInPhotoIDs: Set<UUID> = [
-        UUID(uuidString: "4D211260-1BF8-426E-B9B8-4592CB2614D5")!,
-        UUID(uuidString: "BC554CB0-727B-446B-BC17-638B509F0832")!,
-    ]
+    private static let quickID = UUID(uuidString: "4D211260-1BF8-426E-B9B8-4592CB2614D5")!
+    private static let keepersID = UUID(uuidString: "BC554CB0-727B-446B-BC17-638B509F0832")!
+
+    public static let builtInPhotoIDs = Set(builtInPhotoProfiles.map(\.id))
 
     /// The built-in photo scan profiles, as new installs get them and existing installs gain them once.
     public static let builtInPhotoProfiles: [ScanProfile] = [
-        photoProfile(id: "4D211260-1BF8-426E-B9B8-4592CB2614D5", name: "Photos – Quick", quality: .fine),
-        photoProfile(id: "BC554CB0-727B-446B-BC17-638B509F0832", name: "Photos – Keepers", quality: .excellent),
+        photoProfile(id: quickID, name: "Photos – Quick", quality: .fine),
+        photoProfile(id: keepersID, name: "Photos – Keepers", quality: .excellent),
     ]
 
     /// Text-only auto-rotate stays off because it misfires on photos; face rotation takes its place.
-    private static func photoProfile(id: String, name: String, quality: Quality) -> ScanProfile {
-        ScanProfile(id: UUID(uuidString: id)!, name: name, saveTo: .photos, quality: quality, colorMode: .color,
+    private static func photoProfile(id: UUID, name: String, quality: Quality) -> ScanProfile {
+        ScanProfile(id: id, name: name, saveTo: .photos, quality: quality, colorMode: .color,
                     sides: .duplex, skipBlankPages: true, reduceBleedThrough: false, autoRotate: false,
                     fileFormat: .heic, searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage,
                     correctColor: true, cropToPrint: true, rotateByFaces: true, autoEnhance: true,
@@ -358,10 +365,18 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
                     backCaptions: true)
     }
 
+    /// The resolutions the built-in photo scan profiles save at, which `yomi scan --photo` accepts.
+    private static let photoResolutions = [300, 600]
+
+    /// What `yomi scan --photo` says when given a resolution it does not accept.
+    public static let commandLinePhotoResolutionMessage =
+        "--photo scans at \(photoResolutions.map(String.init).joined(separator: " or ")) dpi"
+
     /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving only into `folder` at `dpi`,
-    /// or `nil` when no quality saves at that resolution.
+    /// or `nil` when `dpi` is not a photo resolution.
     public static func commandLinePhoto(dpi: Int, folder: URL) -> ScanProfile? {
-        guard var profile = builtInPhotoProfiles.first(where: { $0.name == "Photos – Keepers" }),
+        guard photoResolutions.contains(dpi),
+              var profile = builtInPhotoProfiles.first(where: { $0.id == keepersID }),
               let quality = Quality.allCases.first(where: { $0 != .automatic && $0.outputDPI(pageLengthInches: 0) == dpi })
         else { return nil }
         profile.folderPath = folder.path
