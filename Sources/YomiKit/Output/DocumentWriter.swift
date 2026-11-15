@@ -61,7 +61,8 @@ public enum DocumentWriter {
             for (index, page) in pages.enumerated() {
                 progress?("Saving page \(offset + index + 1) of \(total)…")
                 try ImageWriter.write(page.image, to: url, type: profile.fileFormat.imageType,
-                                      resolution: page.resolution, quality: profile.compression.jpegQuality)
+                                      resolution: page.resolution, quality: profile.compression.jpegQuality,
+                                      caption: page.caption)
             }
         case .tiff, .multiPageTIFF:
             try TIFFWriter.write(pages, to: url) { index in

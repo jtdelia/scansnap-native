@@ -19,7 +19,7 @@ public enum TIFFWriter {
                 kCGImagePropertyDPIHeight: page.resolution,
                 kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: lzwCompression],
             ]
-            CGImageDestinationAddImage(destination, page.image, properties as CFDictionary)
+            ImageWriter.addImage(page.image, to: destination, properties: properties, caption: page.caption)
         }
         guard CGImageDestinationFinalize(destination) else { throw ImageWriterError.cannotWrite(url) }
     }
