@@ -45,7 +45,7 @@ struct SettingsView: View {
                 Section("Profiles") {
                     ForEach(model.profiles) { profile in
                         HStack {
-                            Label(profile.name, systemImage: icon(for: profile))
+                            Label(profile.name, systemImage: profile.symbolName)
                             Spacer()
                             if profile.id == model.buttonProfile?.id {
                                 Image(systemName: "button.programmable")
@@ -88,7 +88,7 @@ struct SettingsView: View {
                 } label: {
                     Label("Scan Now", systemImage: "doc.viewfinder")
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.glass(.regular.tint(.accentColor).interactive()))
                 .disabled(!model.connection.isReady || model.jobState == .running)
                 .help("Scan with the selected profile")
             }
@@ -97,20 +97,23 @@ struct SettingsView: View {
     }
 
     private var sidebarActions: some View {
-        HStack(spacing: 6) {
-            Button { selection = .profile(model.addProfile().id) } label: { Image(systemName: "plus") }
-                .help("New profile")
-            Button {
-                if case let .profile(id) = selection, let profile = model.profiles.first(where: { $0.id == id }) {
-                    delete(profile)
-                }
-            } label: { Image(systemName: "minus") }
-                .help("Delete profile")
-                .disabled(selectedProfileID == nil || model.profiles.count <= 1)
-            Spacer()
+        GlassEffectContainer(spacing: 6) {
+            HStack(spacing: 6) {
+                Button { selection = .profile(model.addProfile().id) } label: { Image(systemName: "plus") }
+                    .help("New profile")
+                Button {
+                    if case let .profile(id) = selection, let profile = model.profiles.first(where: { $0.id == id }) {
+                        delete(profile)
+                    }
+                } label: { Image(systemName: "minus") }
+                    .help("Delete profile")
+                    .disabled(selectedProfileID == nil || model.profiles.count <= 1)
+                Spacer()
+            }
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.glass(.regular.interactive()))
         .controlSize(.small)
+        .dimmedWhenInactive()
         .padding(10)
     }
 
@@ -122,13 +125,32 @@ struct SettingsView: View {
         model.delete(profile)
         selection = .scanner
     }
+}
 
-    private func icon(for profile: ScanProfile) -> String {
-        switch profile.fileFormat {
+private extension ScanProfile {
+    var symbolName: String {
+        if correctColor { return "photo" }
+        return switch fileFormat {
         case .pdf: "doc.richtext"
-        case .jpeg: "photo"
+        case .jpeg, .png, .tiff, .heic: "photo"
+        case .multiPageTIFF: "doc.on.doc"
         }
     }
+}
+
+/// Dims glass while the window is not in front. Apply it only to glass, never to text, which keeps full contrast.
+private struct DimmedWhenInactive: ViewModifier {
+    @Environment(\.appearsActive) private var appearsActive
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(appearsActive ? 1 : 0.6)
+            .animation(.easeOut(duration: 0.2), value: appearsActive)
+    }
+}
+
+private extension View {
+    func dimmedWhenInactive() -> some View { modifier(DimmedWhenInactive()) }
 }
 
 // MARK: - Scanner
@@ -136,6 +158,8 @@ struct SettingsView: View {
 struct ScannerSettingsView: View {
     @Bindable var model: AppModel
     @State private var firmwareError: String?
+    @State private var colorProfile = ColorProfile.locate()
+    @State private var colorProfileError: String?
 
     var body: some View {
         Form {
@@ -146,6 +170,7 @@ struct ScannerSettingsView: View {
                         .foregroundStyle(model.connection.isReady ? Color.accentColor : .secondary)
                         .frame(width: 56, height: 56)
                         .glassEffect(.regular, in: .circle)
+                        .dimmedWhenInactive()
                     VStack(alignment: .leading, spacing: 2) {
                         Text("ScanSnap S1300").font(.headline)
                         Text(model.connection.title).font(.callout).foregroundStyle(.secondary)
@@ -167,6 +192,9 @@ struct ScannerSettingsView: View {
             }
 
             Section("General") {
+                Picker("Appearance", selection: $model.appearance) {
+                    ForEach(AppSettings.Appearance.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
                 Toggle("Open Yomi at login", isOn: Binding(
                     get: { model.launchAtLogin },
                     set: { model.setLaunchAtLogin($0) }))
@@ -178,6 +206,19 @@ struct ScannerSettingsView: View {
                 }
                 if let firmwareError {
                     Text(firmwareError).foregroundStyle(.red).font(.caption)
+                }
+                LabeledContent("Color profile") {
+                    HStack {
+                        Text(colorProfile?.url.lastPathComponent ?? "Not found")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                            .help(colorProfile?.url.path(percentEncoded: false) ?? "")
+                        Button("Choose…", action: chooseColorProfile)
+                    }
+                }
+                if let colorProfileError {
+                    Text(colorProfileError).foregroundStyle(.red).font(.caption)
                 }
             }
         }
@@ -203,6 +244,20 @@ struct ScannerSettingsView: View {
             firmwareError = "\(error)"
         }
     }
+
+    private func chooseColorProfile() {
+        let panel = NSOpenPanel()
+        panel.message = "Choose the scanner's color profile (ScanSnap S1300.icm) from the original ScanSnap Manager."
+        panel.allowedContentTypes = ["icm", "icc"].compactMap { UTType(filenameExtension: $0) }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try model.installColorProfile(from: url)
+            colorProfileError = nil
+        } catch {
+            colorProfileError = "\(error)"
+        }
+        colorProfile = ColorProfile.locate()
+    }
 }
 
 // MARK: - Profile editor
@@ -210,6 +265,7 @@ struct ScannerSettingsView: View {
 struct ProfileEditor: View {
     @Bindable var model: AppModel
     @Binding var profile: ScanProfile
+    @State private var albums = PhotoKitLibrary.albumNames()
 
     var body: some View {
         Form {
@@ -221,18 +277,65 @@ struct ProfileEditor: View {
             }
 
             Section("Save To") {
-                LabeledContent("Folder") {
+                Picker("Save to", selection: Binding(get: { profile.destination }, set: { profile.saveTo = $0 })) {
+                    ForEach(profile.fileFormat.savesPagesSeparately ? ScanProfile.SaveDestination.allCases : [.folder],
+                            id: \.self) { Text($0.title).tag($0) }
+                }
+                if !profile.fileFormat.savesPagesSeparately {
+                    Text("Photos can't import PDF or multi-page TIFF files, so they're saved to the folder.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if profile.destination.savesToPhotos {
+                    LabeledContent("Album") {
+                        HStack {
+                            TextField("Album", text: $profile.photosAlbum, prompt: Text("None (library only)"))
+                                .labelsHidden()
+                            Menu {
+                                if albums.isEmpty {
+                                    Button("Show Albums…") {
+                                        Task { albums = await PhotoKitLibrary.requestAccessAndListAlbums() }
+                                    }
+                                }
+                                ForEach(albums, id: \.self) { album in
+                                    Button(album) { profile.photosAlbum = album }
+                                }
+                            } label: { Image(systemName: "rectangle.stack") }
+                                .menuIndicator(.hidden)
+                                .fixedSize()
+                                .help("Choose an album, or type a new name to create it on the first scan")
+                        }
+                    }
+                }
+                LabeledContent(profile.destination.savesToFolder ? "Folder" : "Folder if Photos fails") {
                     HStack {
                         Text(profile.folderURL.path(percentEncoded: false))
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .foregroundStyle(.secondary)
                         Button("Choose…", action: chooseFolder)
-                        Button {
-                            try? FileManager.default.createDirectory(at: profile.folderURL, withIntermediateDirectories: true)
-                            NSWorkspace.shared.open(profile.folderURL)
-                        } label: { Image(systemName: "arrow.up.forward.app") }
+                        Button { model.openFolder(of: profile) } label: { Image(systemName: "arrow.up.forward.app") }
                             .help("Open folder")
+                    }
+                }
+                LabeledContent("Subfolders") {
+                    HStack {
+                        TextField("Subfolders", text: Binding(
+                            get: { profile.subfolderPattern.editorText },
+                            set: { profile.subfolderPattern = FileNamePattern(editorText: $0) }),
+                        prompt: Text("None"))
+                            .labelsHidden()
+                        Menu {
+                            Button("One folder per month") { profile.subfolderPattern = [.year, .text("/"), .month] }
+                            Section("Add") {
+                                ForEach(FileNamePattern.Piece.batchWide, id: \.self) { piece in
+                                    Button(piece.title) { profile.subfolderPattern.pieces.append(piece) }
+                                }
+                            }
+                        } label: { Image(systemName: "plus") }
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("Add a piece; type / to start a new folder level")
                     }
                 }
                 Picker("After scanning", selection: $profile.afterScan) {
@@ -247,18 +350,48 @@ struct ProfileEditor: View {
                 if profile.fileFormat == .pdf {
                     Toggle("Make PDF searchable (recognize text)", isOn: $profile.searchablePDF)
                 }
-                Picker("Compression", selection: $profile.compression) {
-                    ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
+                if !profile.fileFormat.savesPagesSeparately {
+                    Toggle("Split into several files", isOn: Binding(
+                        get: { profile.pagesPerFile != nil },
+                        set: { profile.pagesPerFile = $0 ? 1 : nil }))
+                    if let pagesPerFile = profile.pagesPerFile {
+                        Stepper("One file every \(pagesPerFile) page\(pagesPerFile == 1 ? "" : "s")",
+                                value: Binding(get: { pagesPerFile }, set: { profile.pagesPerFile = $0 }),
+                                in: 1...999)
+                    }
                 }
-                Picker("File name", selection: $profile.fileNaming) {
-                    ForEach(ScanProfile.FileNaming.allCases, id: \.self) { Text($0.title).tag($0) }
+                if profile.fileFormat.usesCompression {
+                    Picker("Compression", selection: $profile.compression) {
+                        ForEach(ScanProfile.Compression.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
                 }
-                if profile.fileNaming == .prefixAndNumber {
-                    TextField("Name", text: $profile.filePrefix)
+                LabeledContent("File name") {
+                    HStack {
+                        TextField("File name", text: Binding(
+                            get: { profile.namePattern.editorText },
+                            set: { profile.namePattern = FileNamePattern(editorText: $0) }))
+                            .labelsHidden()
+                        Menu {
+                            Section("Ready-made") {
+                                Button("Date and time") { profile.namePattern = .dateAndTime }
+                                Button("Name and number") { profile.namePattern = .nameAndNumber("Scan") }
+                            }
+                            Section("Add") {
+                                ForEach(FileNamePattern.Piece.all, id: \.self) { piece in
+                                    Button(piece.title) { profile.namePattern.pieces.append(piece) }
+                                }
+                            }
+                        } label: { Image(systemName: "plus") }
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("Add a piece or choose a ready-made name")
+                    }
+                }
+                if profile.namePattern.usesRunningNumber {
                     Stepper("Next number: \(profile.nextNumber)", value: $profile.nextNumber, in: 0...999_999)
                     Stepper("Digits: \(profile.numberDigits)", value: $profile.numberDigits, in: 1...8)
                 }
-                LabeledContent("Example", value: exampleFileName)
+                LabeledContent("Example", value: DocumentWriter.exampleFileName(for: profile))
             }
 
             Section("Scanning") {
@@ -275,26 +408,34 @@ struct ProfileEditor: View {
 
             Section("Paper and Image") {
                 Toggle("Crop to paper size and straighten", isOn: $profile.cropAndStraighten)
-                Toggle("Rotate pages automatically", isOn: $profile.autoRotate)
+                Toggle("Rotate pages automatically", isOn: Binding(
+                    get: { profile.autoRotate && !profile.rotateByFaces },
+                    set: { profile.autoRotate = $0 }))
+                    .disabled(profile.rotateByFaces)
+                if profile.rotateByFaces {
+                    Text("“Rotate photos upright using faces” is on and rotates by text when there are no faces.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Toggle("Remove blank pages", isOn: $profile.skipBlankPages)
                 Toggle("Reduce bleed-through", isOn: $profile.reduceBleedThrough)
             }
+
+            Section("Photos") {
+                Toggle("Correct colors with the scanner's color profile", isOn: $profile.correctColor)
+                Toggle("Crop to the print's edges instead of paper size", isOn: $profile.cropToPrint)
+                Toggle("Rotate photos upright using faces", isOn: $profile.rotateByFaces)
+                if profile.fileFormat.savesPagesSeparately {
+                    Toggle("Auto-enhance, keeping the untouched original", isOn: $profile.autoEnhance)
+                }
+                Toggle("Save the picture side of prints fed in back first", isOn: $profile.findPictureSide)
+                Toggle("Save writing on the back as the photo's caption, not the back itself",
+                       isOn: $profile.backCaptions)
+            }
         }
         .formStyle(.grouped)
+        .safeAreaInset(edge: .top) { ProfileSummaryBar(profile: profile) }
         .navigationTitle(profile.name)
-    }
-
-    private var exampleFileName: String {
-        let formatter = DateFormatter()
-        switch profile.fileNaming {
-        case .dateTime:
-            formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-            return formatter.string(from: Date()) + (profile.fileFormat == .pdf ? ".pdf" : "_001.jpg")
-        case .prefixAndNumber:
-            let number = String(format: "%0\(profile.numberDigits)d", profile.nextNumber)
-            let prefix = profile.filePrefix.trimmingCharacters(in: .whitespaces)
-            return (prefix.isEmpty ? number : "\(prefix) \(number)") + (profile.fileFormat == .pdf ? ".pdf" : ".jpg")
-        }
     }
 
     private func chooseFolder() {
@@ -306,5 +447,38 @@ struct ProfileEditor: View {
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         profile.folderPath = url.path(percentEncoded: false)
+    }
+}
+
+private struct ProfileSummaryBar: View {
+    let profile: ScanProfile
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: profile.symbolName)
+                .font(.title2)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.summary)
+                    .font(.callout.weight(.medium))
+                Text(([profile.folderURL.lastPathComponent]
+                    + DocumentWriter.exampleSubfolder(for: profile).split(separator: "/").map(String.init)
+                    + [DocumentWriter.exampleFileName(for: profile)]).joined(separator: " / "))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .truncationMode(.middle)
+            }
+            .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background {
+            Color.clear
+                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                .dimmedWhenInactive()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
     }
 }

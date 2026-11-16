@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Yomi",
-    platforms: [.macOS("26.0")],
+    platforms: [.macOS("27.0")],
     products: [
         .library(name: "YomiKit", targets: ["YomiKit"]),
         .executable(name: "yomi", targets: ["yomi"]),
@@ -17,6 +17,11 @@ let package = Package(
         ),
         .executableTarget(name: "yomi", dependencies: ["YomiKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(name: "YomiApp", dependencies: ["YomiKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
-        .testTarget(name: "YomiKitTests", dependencies: ["YomiKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(
+            name: "YomiKitTests",
+            dependencies: ["YomiKit"],
+            resources: [.copy("Fixtures")],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

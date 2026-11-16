@@ -17,8 +17,8 @@ is no kernel extension, no DriverKit extension, and no admin install.
 
 ## Requirements
 
-- macOS 26 or later on Apple Silicon
-- Xcode 26 or later (Swift 6 toolchain)
+- macOS 27 or later on Apple Silicon
+- Xcode 27 or later (Swift 6 toolchain)
 - A ScanSnap S1300 or S1300i
 - The scanner's firmware file, from your own copy of ScanSnap Manager (see below)
 
@@ -59,6 +59,7 @@ The `yomi` command-line tool drives the same code without the app:
 swift run yomi info                # find the scanner and print its identity
 swift run yomi firmware            # upload firmware
 swift run yomi scan 300 ~/Desktop  # scan the loaded sheets at 300 dpi to a PDF
+swift run yomi scan ~/Desktop --photo  # scan prints with the "Photos – Keepers" settings (600 dpi unless given)
 ```
 
 Logs are written to `~/Library/Logs/Yomi.log`.

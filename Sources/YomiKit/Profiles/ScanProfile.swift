@@ -66,23 +66,42 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public enum FileFormat: String, Codable, CaseIterable, Sendable {
-        case pdf, jpeg
+        case pdf, jpeg, png, tiff, multiPageTIFF, heic
 
         public var title: String {
             switch self {
             case .pdf: "PDF (*.pdf)"
             case .jpeg: "JPEG (*.jpg)"
+            case .png: "PNG (*.png)"
+            case .tiff: "TIFF (*.tiff)"
+            case .multiPageTIFF: "Multi-page TIFF (*.tiff)"
+            case .heic: "HEIC (*.heic)"
             }
         }
-    }
 
-    public enum FileNaming: String, Codable, CaseIterable, Sendable {
-        case dateTime, prefixAndNumber
-
-        public var title: String {
+        public var fileExtension: String {
             switch self {
-            case .dateTime: "Date and time"
-            case .prefixAndNumber: "Name and number"
+            case .pdf: "pdf"
+            case .jpeg: "jpg"
+            case .png: "png"
+            case .tiff, .multiPageTIFF: "tiff"
+            case .heic: "heic"
+            }
+        }
+
+        /// Whether every page is saved as its own image file.
+        public var savesPagesSeparately: Bool {
+            switch self {
+            case .jpeg, .png, .tiff, .heic: true
+            case .pdf, .multiPageTIFF: false
+            }
+        }
+
+        /// Whether the compression setting applies: JPEG, HEIC and the images inside PDFs are lossy.
+        public var usesCompression: Bool {
+            switch self {
+            case .pdf, .jpeg, .heic: true
+            case .png, .tiff, .multiPageTIFF: false
             }
         }
     }
@@ -119,9 +138,28 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
+    /// Where a batch is saved. Saving to Photos happens only in the app.
+    public enum SaveDestination: String, Codable, CaseIterable, Sendable {
+        case folder, photos, folderAndPhotos
+
+        public var title: String {
+            switch self {
+            case .folder: "Folder"
+            case .photos: "Photos"
+            case .folderAndPhotos: "Folder and Photos"
+            }
+        }
+
+        public var savesToFolder: Bool { self != .photos }
+        public var savesToPhotos: Bool { self != .folder }
+    }
+
     public var id: UUID
     public var name: String
     public var folderPath: String
+    public var saveTo: SaveDestination
+    /// Photos album the batch goes into, created the first time it is needed. Empty adds photos to the library only.
+    public var photosAlbum: String
     public var afterScan: AfterScan
     public var quality: Quality
     public var colorMode: ColorMode
@@ -133,15 +171,35 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var fileFormat: FileFormat
     public var searchablePDF: Bool
     public var compression: Compression
-    public var fileNaming: FileNaming
-    public var filePrefix: String
+    /// Saved pages per file for PDF and multi-page TIFF; `nil` keeps the whole batch in one file.
+    public var pagesPerFile: Int?
+    public var namePattern: FileNamePattern
+    /// Folders, separated by `/`, that each batch goes into inside the scan profile's folder. Empty saves
+    /// straight into the folder.
+    public var subfolderPattern: FileNamePattern
     public var nextNumber: Int
     public var numberDigits: Int
+    /// Interpret colour with the scanner's colour profile and save in Display P3.
+    public var correctColor: Bool
+    /// Crop to the print's own edges instead of to paper; takes the place of `cropAndStraighten`.
+    public var cropToPrint: Bool
+    /// Rotate prints upright by faces, using text only when there are none. Replaces `autoRotate` when on.
+    public var rotateByFaces: Bool
+    /// Save each file with Core Image's auto-adjustments, plus an untouched copy named with `_original`.
+    public var autoEnhance: Bool
+    /// Save the picture side of a print fed back-side-first as the photo, keeping the feed
+    /// direction whenever the sides are not clearly the wrong way round.
+    public var findPictureSide: Bool
+    /// Save writing read from a print's back as the photo's caption. A back that is mostly plain paper is never
+    /// saved; a back that looks like a picture is saved as a photo instead of being read.
+    public var backCaptions: Bool
 
     public init(
         id: UUID = UUID(),
         name: String,
         folderPath: String = ScanProfile.defaultFolder.path,
+        saveTo: SaveDestination = .folder,
+        photosAlbum: String = "",
         afterScan: AfterScan = .nothing,
         quality: Quality = .automatic,
         colorMode: ColorMode = .auto,
@@ -153,14 +211,23 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         fileFormat: FileFormat = .pdf,
         searchablePDF: Bool = true,
         compression: Compression = .medium,
-        fileNaming: FileNaming = .dateTime,
-        filePrefix: String = "Scan",
+        pagesPerFile: Int? = nil,
+        namePattern: FileNamePattern = .dateAndTime,
+        subfolderPattern: FileNamePattern = [],
         nextNumber: Int = 1,
-        numberDigits: Int = 3
+        numberDigits: Int = 3,
+        correctColor: Bool = false,
+        cropToPrint: Bool = false,
+        rotateByFaces: Bool = false,
+        autoEnhance: Bool = false,
+        findPictureSide: Bool = false,
+        backCaptions: Bool = false
     ) {
         self.id = id
         self.name = name
         self.folderPath = folderPath
+        self.saveTo = saveTo
+        self.photosAlbum = photosAlbum
         self.afterScan = afterScan
         self.quality = quality
         self.colorMode = colorMode
@@ -172,10 +239,67 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.fileFormat = fileFormat
         self.searchablePDF = searchablePDF
         self.compression = compression
-        self.fileNaming = fileNaming
-        self.filePrefix = filePrefix
+        self.pagesPerFile = pagesPerFile
+        self.namePattern = namePattern
+        self.subfolderPattern = subfolderPattern
         self.nextNumber = nextNumber
         self.numberDigits = numberDigits
+        self.correctColor = correctColor
+        self.cropToPrint = cropToPrint
+        self.rotateByFaces = rotateByFaces
+        self.autoEnhance = autoEnhance
+        self.findPictureSide = findPictureSide
+        self.backCaptions = backCaptions
+    }
+
+    /// Every key is optional, so scan profiles saved by any earlier version keep loading.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ScanProfile(name: "New Profile")
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? defaults.id
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? defaults.name
+        folderPath = try container.decodeIfPresent(String.self, forKey: .folderPath) ?? defaults.folderPath
+        saveTo = try container.decodeIfPresent(SaveDestination.self, forKey: .saveTo)
+            ?? (Self.builtInPhotoIDs.contains(id) ? .photos : .folder)
+        photosAlbum = try container.decodeIfPresent(String.self, forKey: .photosAlbum) ?? defaults.photosAlbum
+        afterScan = try container.decodeIfPresent(AfterScan.self, forKey: .afterScan) ?? defaults.afterScan
+        quality = try container.decodeIfPresent(Quality.self, forKey: .quality) ?? defaults.quality
+        colorMode = try container.decodeIfPresent(ColorMode.self, forKey: .colorMode) ?? defaults.colorMode
+        sides = try container.decodeIfPresent(Sides.self, forKey: .sides) ?? defaults.sides
+        skipBlankPages = try container.decodeIfPresent(Bool.self, forKey: .skipBlankPages) ?? defaults.skipBlankPages
+        reduceBleedThrough = try container.decodeIfPresent(Bool.self, forKey: .reduceBleedThrough)
+            ?? defaults.reduceBleedThrough
+        autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? defaults.autoRotate
+        cropAndStraighten = try container.decodeIfPresent(Bool.self, forKey: .cropAndStraighten)
+            ?? defaults.cropAndStraighten
+        fileFormat = try container.decodeIfPresent(FileFormat.self, forKey: .fileFormat) ?? defaults.fileFormat
+        searchablePDF = try container.decodeIfPresent(Bool.self, forKey: .searchablePDF) ?? defaults.searchablePDF
+        compression = try container.decodeIfPresent(Compression.self, forKey: .compression) ?? defaults.compression
+        pagesPerFile = try container.decodeIfPresent(Int.self, forKey: .pagesPerFile) ?? defaults.pagesPerFile
+        namePattern = try (try? container.decodeIfPresent(FileNamePattern.self, forKey: .namePattern))
+            ?? Self.convertedNamePattern(decoder.container(keyedBy: LegacyKeys.self), fileFormat: fileFormat)
+        subfolderPattern = (try? container.decodeIfPresent(FileNamePattern.self, forKey: .subfolderPattern))
+            ?? defaults.subfolderPattern
+        nextNumber = try container.decodeIfPresent(Int.self, forKey: .nextNumber) ?? defaults.nextNumber
+        numberDigits = try container.decodeIfPresent(Int.self, forKey: .numberDigits) ?? defaults.numberDigits
+        correctColor = try container.decodePhotoSetting(forKey: .correctColor, profileID: id)
+        cropToPrint = try container.decodePhotoSetting(forKey: .cropToPrint, profileID: id)
+        rotateByFaces = try container.decodePhotoSetting(forKey: .rotateByFaces, profileID: id)
+        autoEnhance = try container.decodePhotoSetting(forKey: .autoEnhance, profileID: id)
+        findPictureSide = try container.decodePhotoSetting(forKey: .findPictureSide, profileID: id)
+        backCaptions = try container.decodePhotoSetting(forKey: .backCaptions, profileID: id)
+    }
+
+    /// Keys that earlier versions saved and this version only reads.
+    private enum LegacyKeys: String, CodingKey { case fileNaming, filePrefix }
+
+    /// The name pattern matching an earlier version's file naming choice, so it names files exactly as before.
+    private static func convertedNamePattern(_ container: KeyedDecodingContainer<LegacyKeys>,
+                                             fileFormat: FileFormat) throws -> FileNamePattern {
+        if try container.decodeIfPresent(String.self, forKey: .fileNaming) == "prefixAndNumber" {
+            return try .nameAndNumber(container.decodeIfPresent(String.self, forKey: .filePrefix) ?? "Scan")
+        }
+        return fileFormat == .jpeg ? .dateTimeAndPage : .dateAndTime
     }
 
     public static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser
@@ -183,30 +307,94 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
 
     public var folderURL: URL { URL(fileURLWithPath: folderPath, isDirectory: true) }
 
+    /// Where batches go. Photos imports only formats that save each page as its own image, so PDF and multi-page
+    /// TIFF always go to the folder.
+    public var destination: SaveDestination { fileFormat.savesPagesSeparately ? saveTo : .folder }
+
+    /// Whether files are saved auto-enhanced. Only formats that save each page as its own image are enhanced.
+    public var enhancesPhotos: Bool { autoEnhance && fileFormat.savesPagesSeparately }
+
     /// One-line summary for the progress panel and profile list.
     public var summary: String {
         var parts = [quality.shortTitle, colorMode.title, sides == .duplex ? "Duplex" : "Simplex"]
-        parts.append(fileFormat == .pdf ? (searchablePDF ? "Searchable PDF" : "PDF") : "JPEG")
+        switch fileFormat {
+        case .pdf: parts.append(searchablePDF ? "Searchable PDF" : "PDF")
+        case .jpeg: parts.append("JPEG")
+        case .png: parts.append("PNG")
+        case .tiff: parts.append("TIFF")
+        case .multiPageTIFF: parts.append("Multi-page TIFF")
+        case .heic: parts.append("HEIC")
+        }
         return parts.joined(separator: " · ")
     }
 
     var processingOptions: ProcessingOptions {
         var options = ProcessingOptions()
         options.cropAndStraighten = cropAndStraighten
+        options.cropToPrint = cropToPrint
         options.skipBlankPages = skipBlankPages
         options.reduceBleedThrough = reduceBleedThrough
         options.autoRotate = autoRotate
+        options.rotateByFaces = rotateByFaces
         options.colorMode = colorMode
         options.quality = quality
-        options.documentTone = !(colorMode == .color && fileFormat == .jpeg)
+        options.documentTone = !(colorMode == .color && fileFormat.savesPagesSeparately)
         return options
+    }
+
+    /// IDs of the built-in "Photos – Quick" and "Photos – Keepers" scan profiles. Never change
+    /// them: saved scan profiles with these IDs get new photo settings switched on.
+    private static let quickID = UUID(uuidString: "4D211260-1BF8-426E-B9B8-4592CB2614D5")!
+    private static let keepersID = UUID(uuidString: "BC554CB0-727B-446B-BC17-638B509F0832")!
+
+    public static let builtInPhotoIDs = Set(builtInPhotoProfiles.map(\.id))
+
+    /// The built-in photo scan profiles, as new installs get them and existing installs gain them once.
+    public static let builtInPhotoProfiles: [ScanProfile] = [
+        photoProfile(id: quickID, name: "Photos – Quick", quality: .fine),
+        photoProfile(id: keepersID, name: "Photos – Keepers", quality: .excellent),
+    ]
+
+    /// Text-only auto-rotate stays off because it misfires on photos; face rotation takes its place.
+    private static func photoProfile(id: UUID, name: String, quality: Quality) -> ScanProfile {
+        ScanProfile(id: id, name: name, saveTo: .photos, quality: quality, colorMode: .color,
+                    sides: .duplex, skipBlankPages: true, reduceBleedThrough: false, autoRotate: false,
+                    fileFormat: .heic, searchablePDF: false, compression: .low, namePattern: .dateTimeAndPage,
+                    correctColor: true, cropToPrint: true, rotateByFaces: true, autoEnhance: true,
+                    findPictureSide: true,
+                    backCaptions: true)
+    }
+
+    /// The resolutions the built-in photo scan profiles save at, which `yomi scan --photo` accepts.
+    private static let photoResolutions = [300, 600]
+
+    /// What `yomi scan --photo` says when given a resolution it does not accept.
+    public static let commandLinePhotoResolutionMessage =
+        "--photo scans at \(photoResolutions.map(String.init).joined(separator: " or ")) dpi"
+
+    /// The settings `yomi scan --photo` uses: "Photos – Keepers" saving only into `folder` at `dpi`,
+    /// or `nil` when `dpi` is not a photo resolution.
+    public static func commandLinePhoto(dpi: Int, folder: URL) -> ScanProfile? {
+        guard photoResolutions.contains(dpi),
+              var profile = builtInPhotoProfiles.first(where: { $0.id == keepersID }),
+              let quality = Quality.allCases.first(where: { $0 != .automatic && $0.outputDPI(pageLengthInches: 0) == dpi })
+        else { return nil }
+        profile.folderPath = folder.path
+        profile.saveTo = .folder
+        profile.quality = quality
+        return profile
     }
 
     public static let defaults: [ScanProfile] = [
         ScanProfile(name: "Scan to Yomi Folder"),
         ScanProfile(name: "Receipts", quality: .automatic, colorMode: .auto, sides: .simplex),
-        ScanProfile(name: "Photos", quality: .excellent, colorMode: .color, sides: .simplex,
-                    skipBlankPages: false, reduceBleedThrough: false, autoRotate: false, fileFormat: .jpeg, searchablePDF: false,
-                    compression: .low),
-    ]
+    ] + builtInPhotoProfiles
+}
+
+extension KeyedDecodingContainer {
+    /// Decodes a photo setting; when the key is missing, it is on for the built-in photo scan
+    /// profiles and off for every other scan profile.
+    func decodePhotoSetting(forKey key: Key, profileID: UUID) throws -> Bool {
+        try decodeIfPresent(Bool.self, forKey: key) ?? ScanProfile.builtInPhotoIDs.contains(profileID)
+    }
 }

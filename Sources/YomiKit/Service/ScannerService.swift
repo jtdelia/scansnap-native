@@ -45,8 +45,26 @@ public struct ScanOutcome: Sendable {
     public let sheets: Int
     public let pages: Int
     public let blankPagesSkipped: Int
-    /// Set when the batch stopped early; pages scanned before the problem are still saved.
+    /// Where the batch was saved, such as the folder's name or "Photos".
+    public var place: String? = nil
+    /// The folder holding `files`, or `nil` when the batch went only to Photos.
+    public var folder: URL? = nil
+    /// Set when the batch stopped early or was not saved where the scan profile asked; pages are still saved.
     public var warning: String? = nil
+    /// Something the batch was saved without, such as colour correction, that does not make it a failure.
+    public var notice: String? = nil
+
+    /// What the progress panel says once the batch is saved, and whether it reads as a problem.
+    /// `defaultPlace` names where the batch went when `place` is not set.
+    public func summary(defaultPlace: String) -> (message: String, isProblem: Bool) {
+        let saved = "Saved \(pages) page\(pages == 1 ? "" : "s")"
+        if let warning {
+            return ([saved + ".", warning, notice].compactMap(\.self).joined(separator: " "), true)
+        }
+        let skipped = blankPagesSkipped > 0 ? ", \(blankPagesSkipped) blank skipped" : ""
+        let message = pages == 0 ? "No pages saved\(skipped)." : "\(saved) to \(place ?? defaultPlace)\(skipped)."
+        return ([message, notice].compactMap(\.self).joined(separator: " "), false)
+    }
 }
 
 /// Appends timestamped lines to ~/Library/Logs/Yomi.log.
@@ -79,6 +97,8 @@ public final class ScannerService: @unchecked Sendable {
     public var onConnectionChange: (@Sendable (ScannerConnection) -> Void)?
     public var onButtonPress: (@Sendable () -> Void)?
     public var onProgress: (@Sendable (ScanProgress) -> Void)?
+    /// Photos, for scan profiles that save there; `nil` saves those batches to their folder instead.
+    public var photoLibrary: (any PhotoLibrary)?
 
     private let queue = DispatchQueue(label: "Yomi.scanner", qos: .userInteractive)
     private var timer: DispatchSourceTimer?
@@ -259,6 +279,10 @@ public final class ScannerService: @unchecked Sendable {
         }
         update { _ in }
 
+        let colorCorrection = ColorCorrection.forBatch(profile)
+        if let line = colorCorrection.logLine { ScanLog.write("  \(line)") }
+        let colorProfile = colorCorrection.colorSpace
+
         let engine = try ScanEngine(device: device, dpi: profile.quality.dpi)
         engine.isCancelled = { [weak self] in self?.isCancelRequested ?? true }
         engine.log = { ScanLog.write("  \($0)") }
@@ -288,7 +312,8 @@ public final class ScannerService: @unchecked Sendable {
                     defer { group.leave() }
                     if saveRaw { self.saveRaw(rawFront, rawBack, sheet: index) }
                     do {
-                        let sheet = try SheetProcessor.process(front: rawFront, back: rawBack, profile: profile)
+                        let sheet = try SheetProcessor.process(front: rawFront, back: rawBack, profile: profile,
+                                                               colorProfile: colorProfile)
                         sheet.notes.forEach { ScanLog.write("  sheet \(index) \($0)") }
                         state.lock.withLock { state.results[index] = sheet.pages }
                         update {
@@ -321,15 +346,22 @@ public final class ScannerService: @unchecked Sendable {
             if let stopReason { throw stopReason }
             return ScanOutcome(files: [], sheets: sheets, pages: 0, blankPagesSkipped: skipped)
         }
-        let files = try DocumentWriter.save(pages, profile: profile) { phase in
+        let saved = try BatchSaver.save(pages, profile: profile, photoLibrary: photoLibrary) { phase in
             update { $0.phase = phase }
         }
-        var outcome = ScanOutcome(files: files, sheets: sheets, pages: pages.count, blankPagesSkipped: skipped)
-        if let stopReason {
-            outcome.warning = (stopReason as? ScanError)?.isCancellation == true
+        if let warning = saved.warning { ScanLog.write("  \(warning)") }
+        if let notice = saved.notice { ScanLog.write("  \(notice)") }
+        var outcome = ScanOutcome(files: saved.files, sheets: sheets, pages: pages.count, blankPagesSkipped: skipped,
+                                  place: saved.place, folder: saved.folder)
+        let stopWarning = stopReason.map { stopReason in
+            (stopReason as? ScanError)?.isCancellation == true
                 ? "Stopped. Pages scanned so far were saved."
                 : "Stopped early (\(stopReason)). Pages scanned so far were saved."
         }
+        let warnings = [stopWarning, saved.warning].compactMap { $0 }
+        outcome.warning = warnings.isEmpty ? nil : warnings.joined(separator: " ")
+        let notices = [colorCorrection.notice, saved.notice].compactMap { $0 }
+        outcome.notice = notices.isEmpty ? nil : notices.joined(separator: " ")
         return outcome
     }
 }

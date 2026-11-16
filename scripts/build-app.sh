@@ -39,10 +39,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundleVersion</key><string>1</string>
-    <key>LSMinimumSystemVersion</key><string>26.0</string>
+    <key>LSMinimumSystemVersion</key><string>27.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSPhotoLibraryUsageDescription</key><string>Yomi saves scanned photos to the album you choose in its scan profiles.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key><string>Yomi saves scanned photos to Photos.</string>
     <key>NSHumanReadableCopyright</key><string>Native driver for ScanSnap S1300 / S1300i.</string>
 </dict>
 </plist>
