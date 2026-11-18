@@ -149,7 +149,8 @@ struct DocumentRecognitionTests {
             let output = try await offTheTaskPool { try OCRTestHelper(in: folder).run(on: staged) }
             if afterBlank && output.visionUnavailable { try reportVisionUnavailable("Preceding blank page: \(output.stderr)") }
             #expect(output.status == 1)
-            #expect(output.stderr.wholeMatch(of: #/yomi-ocr: invalidImage\("[^"\n]+"\)/#) != nil, "\(output.stderr)")
+            let diagnostic = try #require(output.stderr.wholeMatch(of: #/yomi-ocr: invalidImage\("([^":\n]+): [^"\n]+"\)/#), "\(output.stderr)")
+            #expect(diagnostic.1 == damaged.file)
             for index in batch.documents.indices {
                 #expect(!FileManager.default.fileExists(atPath: staged.appendingPathComponent("result-\(index).pdf").path))
             }
@@ -157,7 +158,8 @@ struct DocumentRecognitionTests {
             do {
                 _ = try await batch.recognizePages(in: staged)
                 Issue.record("Recognition accepted the damaged page")
-            } catch VisionError.invalidImage {
+            } catch VisionError.invalidImage(let reason) {
+                #expect(reason.hasPrefix("\(damaged.file): "))
             } catch where afterBlank && isVisionComputeFailure(String(describing: error)) {
                 try reportVisionUnavailable("Vision could not recognize the preceding blank page: \(error)")
             }

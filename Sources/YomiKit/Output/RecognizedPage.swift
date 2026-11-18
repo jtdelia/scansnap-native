@@ -8,7 +8,12 @@ package struct RecognizedPage {
     package let detectedData: [DataDetector.Match]
 
     static func read(_ url: URL, language: ScanProfile.TextRecognitionLanguage) async throws -> Self {
-        let documents = try await language.documentRequest.perform(on: url).map(\.document)
+        let documents: [DocumentObservation.Container]
+        do {
+            documents = try await language.documentRequest.perform(on: url).map(\.document)
+        } catch VisionError.invalidImage(let reason) {
+            throw VisionError.invalidImage("\(url.lastPathComponent): \(reason)")
+        }
         let transcript = documents.map(\.text.transcript).joined(separator: "\n")
         var matches: [DataDetector.Match] = []
         for await match in transcript.dataDetectorMatches(options: language.dataDetectionOptions) {
