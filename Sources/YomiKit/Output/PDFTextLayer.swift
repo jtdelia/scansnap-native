@@ -13,13 +13,23 @@ package enum PDFTextLayer {
         let box: CGRect
     }
 
+    private struct RecognitionFailure: Error, CustomStringConvertible {
+        let cause: Error
+
+        var description: String { "Vision text recognition: \(String(reflecting: cause))" }
+    }
+
     private static func recognizeText(in image: CGImage) throws -> [RecognizedLine] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         request.automaticallyDetectsLanguage = true
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        try handler.perform([request])
+        do {
+            try handler.perform([request])
+        } catch {
+            throw RecognitionFailure(cause: error)
+        }
         return (request.results ?? []).compactMap { observation in
             guard let candidate = observation.topCandidates(1).first else { return nil }
             return RecognizedLine(text: candidate.string, box: observation.boundingBox)
