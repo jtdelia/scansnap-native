@@ -122,7 +122,7 @@ package struct ScanHistory: Codable {
             }
             return try JSONDecoder().decode(Self.self, from: handle.readToEnd() ?? Data())
         }
-        catch CocoaError.fileReadNoSuchFile { return Self() }
+        catch CocoaError.fileNoSuchFile, CocoaError.fileReadNoSuchFile { return Self() }
     }
 
     static func savedRules() -> [LearnedName] { (try? load().rules) ?? [] }

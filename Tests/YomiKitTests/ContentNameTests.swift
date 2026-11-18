@@ -330,3 +330,10 @@ extension ContentNameTests {
         #expect(output.naming == nil)
     }
 }
+
+extension ContentNameTests {
+    @Test func firstLaunchReadsAnEmptyHistory() throws {
+        let history = try ScanHistory.load(from: location)
+        #expect(history.batches.isEmpty && history.rules.isEmpty)
+    }
+}
