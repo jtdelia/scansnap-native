@@ -42,16 +42,39 @@ struct OCRBatchTests {
         #expect(OCRBatch.helperURL == executable.deletingLastPathComponent().appendingPathComponent("yomi-ocr"))
     }
 
-    @Test func onlyTheReportedVisionErrorAllowsImageOnlyResults() {
-        let failure = #"yomi-ocr: e5rtError("e5rt_stream_completion_handler call failed", 10)"#
-        let unavailable = #"yomi-ocr: e5rtError("e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)"#
-        #expect(OCRTestHelper.Output(status: 1, stderr: unavailable).visionUnavailable)
-        #expect(OCRTestHelper.Output(status: 1, stderr: failure).visionUnavailable)
-        #expect(!OCRTestHelper.Output(status: 0, stderr: failure).visionUnavailable)
-        #expect(!OCRTestHelper.Output(status: 42, stderr: failure).visionUnavailable)
-        #expect(!OCRTestHelper.Output(status: 1, stderr: "").visionUnavailable)
-        #expect(!OCRTestHelper.Output(status: 1, stderr: "control: \(failure)").visionUnavailable)
+    @Test func onlyTheReportedVisionErrorAllowsImageOnlyResults() async {
+        let failure = #"yomi-ocr: e5rtError("e5rt_stream_completion_handler call failed", 10)"# + "\n"
+        let unavailable = #"yomi-ocr: e5rtError("e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)"# + "\n"
+        let compiler = #"e5rtError("e5rt_e5_compiler_compile call failed", 11)"#
+        let request = "RecognizeDocumentsRequest.perform on page-1.png: TextRecognition.CRImageReaderError.\(compiler)"
+        #expect(isVisionComputeFailure(compiler))
+        #expect(isVisionComputeFailure(request))
+        #expect(await OCRTestHelper.Output(status: 1, stderr: "yomi-ocr: \(request)\n").unavailableReason() != nil)
+        #expect(!isVisionComputeFailure(#"e5rtError("e5rt_e5_compiler_compile call failed", 10)"#))
+        #expect(await OCRTestHelper.Output(status: 1, stderr: unavailable).unavailableReason() != nil)
+        #expect(await OCRTestHelper.Output(status: 1, stderr: failure).unavailableReason() != nil)
+        #expect(await OCRTestHelper.Output(status: 0, stderr: failure).unavailableReason() == nil)
+        #expect(await OCRTestHelper.Output(status: 42, stderr: failure).unavailableReason() == nil)
+        #expect(await OCRTestHelper.Output(status: 1, stderr: "").unavailableReason() == nil)
+        #expect(await OCRTestHelper.Output(status: 1, stderr: "control: \(failure)").unavailableReason() == nil)
         #expect(!isVisionComputeFailure(#"e5rtError("e5rt_stream_completion_handler call failed", 13)"#))
+    }
+
+    @Test func unknownDocumentErrorNeedsAReaderFailureOnRenderedText() async {
+        let prefix = "RecognizeDocumentsRequest.perform on page-1.png: "
+        let diagnostic = prefix + "TextRecognition.CRImageReaderError.unknownError"
+        let readerError = NSError(domain: "TextRecognition.CRImageReaderError", code: 9)
+        #expect(!isVisionComputeFailure("unknownError"))
+        #expect(await visionUnavailableReason(diagnostic) { readerError } != nil)
+        #expect(await visionUnavailableReason(diagnostic) { nil } == nil)
+        #expect(await visionUnavailableReason(diagnostic) { NSError(domain: readerError.domain, code: 8) } == nil)
+        #expect(await visionUnavailableReason(diagnostic) { NSError(domain: "unrelated", code: 9) } == nil)
+        #expect(await visionUnavailableReason(diagnostic, on: "page-2.png") { readerError } == nil)
+        for other in ["unknownError", prefix + "unknownError", prefix + "Other.unknownError",
+                      "writePDFs on page-1.png: TextRecognition.CRImageReaderError.unknownError",
+                      "\(diagnostic)\nother", prefix + "Vision.VisionError.invalidImage(\"damaged\")"] {
+            #expect(await visionUnavailableReason(other) { readerError } == nil)
+        }
     }
 
     @Test func textLayerErrorOnTheSecondPageFailsThePDF() throws {
@@ -108,7 +131,7 @@ struct OCRBatchTests {
         try expectJPEGRaster(page, quality: profile.compression.jpegQuality, in: output)
         let pdfPage = try #require(document.page(at: 0))
         let text = (pdfPage.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if try helper.output().recognized() {
+        if try await helper.output().recognized() {
             let invoice = "Invoice B762194 Total 18.95 Ref 8217"
             let lines = text.split(whereSeparator: \.isNewline).map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
             #expect(lines == Array(repeating: invoice, count: 3))
@@ -150,7 +173,7 @@ struct OCRBatchTests {
         #expect(pdfs.map(\.pageCount) == [2, 1])
         let pdfPages = try pdfs.flatMap { pdf in try (0..<pdf.pageCount).map { try #require(pdf.page(at: $0)) } }
         #expect(pdfPages.map { $0.bounds(for: .mediaBox).width } == [460.8, 230.4, 115.2])
-        let expected = try helper.output().recognized() ? ["Invoice number twelve", "Delivery date", "Final balance"] : ["", "", ""]
+        let expected = try await helper.output().recognized() ? ["Invoice number twelve", "Delivery date", "Final balance"] : ["", "", ""]
         #expect(pdfPages.map { ($0.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines) } == expected)
         for (document, originals) in zip(files, [Array(pages.prefix(2)), Array(pages.suffix(1))]) {
             for (index, original) in originals.enumerated() {

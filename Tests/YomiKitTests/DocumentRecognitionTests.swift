@@ -70,7 +70,7 @@ struct DocumentRecognitionTests {
             return saved.files
         }
         try #require(files.map(\.lastPathComponent) == ["Invoices_001.pdf", "Invoices_002.pdf", "Invoices_003.pdf"])
-        let recognized = try helper.output().recognized()
+        let recognized = try await helper.output().recognized()
         let documents = try files.map { try #require(PDFDocument(url: $0)) }
         for (index, document) in documents.enumerated() {
             try #require(document.pageCount == 1)
@@ -94,8 +94,8 @@ struct DocumentRecognitionTests {
         let results: [String: RecognizedPage]
         do {
             results = try await batch.recognizePages(in: staged)
-        } catch where isVisionComputeFailure(String(describing: error)) {
-            try reportVisionUnavailable("Vision could not recognize the staged pages: \(error)")
+        } catch {
+            try await reportVisionFailure(error)
         }
         let order = try #require(results[batch.documents[0].pages[0].file])
         let table = try #require(order.documents.flatMap(\.tables).first)
@@ -118,7 +118,7 @@ struct DocumentRecognitionTests {
         defer { try? FileManager.default.removeItem(at: staged) }
         if inHelper {
             let output = try await offTheTaskPool { try OCRTestHelper(in: folder).run(on: staged) }
-            if output.visionUnavailable { try reportVisionUnavailable("Blank page: \(output.stderr)") }
+            if let reason = await output.unavailableReason() { try reportVisionUnavailable(reason) }
             try #require(output.status == 0 && output.stderr.isEmpty, "\(output)")
             let file = staged.appendingPathComponent("result-0.pdf")
             let pdf = try #require(PDFDocument(url: file))
@@ -130,8 +130,8 @@ struct DocumentRecognitionTests {
                 let recognized = try await batch.recognizePages(in: staged)
                 let blank = try #require(recognized[batch.documents[0].pages[0].file])
                 #expect(blank.transcript.isEmpty)
-            } catch where isVisionComputeFailure(String(describing: error)) {
-                try reportVisionUnavailable("Vision could not recognize the blank page: \(error)")
+            } catch {
+                try await reportVisionFailure(error)
             }
         }
     }
@@ -147,21 +147,23 @@ struct DocumentRecognitionTests {
         try Data().write(to: staged.appendingPathComponent(damaged.file))
         if inHelper {
             let output = try await offTheTaskPool { try OCRTestHelper(in: folder).run(on: staged) }
-            if afterBlank && output.visionUnavailable { try reportVisionUnavailable("Preceding blank page: \(output.stderr)") }
             #expect(output.status == 1)
-            let diagnostic = try #require(output.stderr.wholeMatch(of: #/yomi-ocr: invalidImage\("([^":\n]+): [^"\n]+"\)/#), "\(output.stderr)")
-            #expect(diagnostic.1 == damaged.file)
             for index in batch.documents.indices {
                 #expect(!FileManager.default.fileExists(atPath: staged.appendingPathComponent("result-\(index).pdf").path))
             }
+            if afterBlank, let reason = await output.unavailableReason(on: batch.documents[0].pages[0].file) {
+                try reportVisionUnavailable(reason)
+            }
+            let diagnostic = try #require(output.stderr.wholeMatch(of: #/yomi-ocr: invalidImage\("([^":\n]+): [^"\n]+"\)\n/#), "\(output.stderr)")
+            #expect(diagnostic.1 == damaged.file)
         } else {
             do {
                 _ = try await batch.recognizePages(in: staged)
                 Issue.record("Recognition accepted the damaged page")
             } catch VisionError.invalidImage(let reason) {
                 #expect(reason.hasPrefix("\(damaged.file): "))
-            } catch where afterBlank && isVisionComputeFailure(String(describing: error)) {
-                try reportVisionUnavailable("Vision could not recognize the preceding blank page: \(error)")
+            } catch where afterBlank {
+                try await reportVisionFailure(error, on: batch.documents[0].pages[0].file)
             }
         }
     }

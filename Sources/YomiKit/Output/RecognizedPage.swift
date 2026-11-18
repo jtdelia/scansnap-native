@@ -2,6 +2,13 @@ import DataDetection
 import Foundation
 import Vision
 
+private struct DocumentRequestFailure: Error, CustomStringConvertible {
+    let file: String
+    let cause: Error
+
+    var description: String { "RecognizeDocumentsRequest.perform on \(file): \(String(reflecting: cause))" }
+}
+
 package struct RecognizedPage {
     package let documents: [DocumentObservation.Container]
     package let transcript: String
@@ -13,6 +20,8 @@ package struct RecognizedPage {
             documents = try await language.documentRequest.perform(on: url).map(\.document)
         } catch VisionError.invalidImage(let reason) {
             throw VisionError.invalidImage("\(url.lastPathComponent): \(reason)")
+        } catch {
+            throw DocumentRequestFailure(file: url.lastPathComponent, cause: error)
         }
         let transcript = documents.map(\.text.transcript).joined(separator: "\n")
         var matches: [DataDetector.Match] = []
