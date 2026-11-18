@@ -11,6 +11,7 @@ private struct DocumentRequestFailure: Error, CustomStringConvertible {
 
 package struct RecognizedPage {
     package let kind: PageKind
+    let language: ScanProfile.TextRecognitionLanguage
     package let documents: [DocumentObservation.Container]
     package let transcript: String
     package let detectedData: [DataDetector.Match]
@@ -29,7 +30,7 @@ package struct RecognizedPage {
         for await match in transcript.dataDetectorMatches(options: language.dataDetectionOptions) {
             matches.append(match)
         }
-        return Self(kind: kind, documents: documents, transcript: transcript, detectedData: matches)
+        return Self(kind: kind, language: language, documents: documents, transcript: transcript, detectedData: matches)
     }
 }
 

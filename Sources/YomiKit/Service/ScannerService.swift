@@ -41,7 +41,8 @@ public struct ScanProgress: @unchecked Sendable {
 }
 
 public struct ScanOutcome: Sendable {
-    public let files: [URL]
+    public internal(set) var files: [URL]
+    package var ocrOutputs: [OCRDocumentOutput] = []
     public let sheets: Int
     public let pages: Int
     public let blankPagesSkipped: Int
@@ -69,11 +70,14 @@ public struct ScanOutcome: Sendable {
     func report(after recognition: OCRJob?, on queue: DispatchQueue, onPagesReady: (@Sendable (Int, Bool) -> Void)?,
                 completion: @escaping @Sendable (Result<ScanOutcome, Error>) -> Void) {
         onPagesReady?(pages, recognition != nil)
-        let finish: @Sendable (Result<Void, Error>) -> Void = { result in
+        let finish: @Sendable (Result<[OCRDocumentOutput], Error>) -> Void = { result in
             switch result {
-            case .success:
-                ScanLog.write("scan finished: \(sheets) sheet(s), \(pages) page(s), \(blankPagesSkipped) blank skipped → \(files.map(\.lastPathComponent).joined(separator: ", "))")
-                completion(.success(self))
+            case let .success(outputs):
+                var outcome = self
+                outcome.ocrOutputs = outputs
+                if !outputs.isEmpty { outcome.files = outputs.map(\.pdf) }
+                ScanLog.write("scan finished: \(sheets) sheet(s), \(pages) page(s), \(blankPagesSkipped) blank skipped → \(outcome.files.map(\.lastPathComponent).joined(separator: ", "))")
+                completion(.success(outcome))
             case let .failure(error):
                 ScanLog.write("scan failed: \(error)")
                 completion(.failure(error))
@@ -82,7 +86,7 @@ public struct ScanOutcome: Sendable {
         if let recognition {
             recognition.notify(on: queue, finish)
         } else {
-            finish(.success(()))
+            finish(.success([]))
         }
     }
 }

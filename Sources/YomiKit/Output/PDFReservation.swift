@@ -7,7 +7,7 @@ final class PDFDirectory {
     private let identity: stat
 
     var url: URL { folder.url }
-    fileprivate var handle: FileHandle { folder.directory }
+    var handle: FileHandle { folder.directory }
 
     init(_ folder: ScanFolder) throws {
         self.folder = folder
@@ -27,7 +27,7 @@ final class PDFDirectory {
         return entry.st_dev == held.st_dev && entry.st_ino == held.st_ino
     }
 
-    fileprivate func verify() throws {
+    func verify() throws {
         var current = stat()
         guard let reopened = try? folder.reopen(),
               withExtendedLifetime(reopened, { fstat(reopened.fileDescriptor, &current) }) == 0,
@@ -42,13 +42,15 @@ final class PDFDirectory {
 final class PDFReservation {
     let name: DocumentWriter.FileName
     let output: URL
-    private let directory: PDFDirectory
-    private var markerDirectory: FileHandle?
+    let directory: PDFDirectory
+    let stagingURL: URL
+    private(set) var markerDirectory: FileHandle?
 
-    private init(name: DocumentWriter.FileName, output: URL, directory: PDFDirectory, staging: FileHandle) {
+    private init(name: DocumentWriter.FileName, output: URL, directory: PDFDirectory, marker: String, staging: FileHandle) {
         self.name = name
         self.output = output
         self.directory = directory
+        stagingURL = directory.url.appendingPathComponent(marker)
         markerDirectory = staging
     }
 
@@ -65,7 +67,7 @@ final class PDFReservation {
         var entry = stat()
         if fstatat(directory.handle.fileDescriptor, filename, &entry, AT_SYMLINK_NOFOLLOW) == 0 { return nil }
         guard errno == ENOENT else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
-        return PDFReservation(name: name, output: output, directory: directory, staging: staging)
+        return PDFReservation(name: name, output: output, directory: directory, marker: marker, staging: staging)
     }
 
     private static func lockMarker(_ marker: String, in directory: PDFDirectory) throws -> FileHandle? {
@@ -133,7 +135,7 @@ final class PDFReservation {
 extension FileHandle {
     var pdfURL: URL { URL(fileURLWithPath: "/dev/fd/\(fileDescriptor)") }
 
-    fileprivate func copyPDF(to descriptor: Int32) throws {
+    func copyPDF(to descriptor: Int32) throws {
         try seek(toOffset: 0)
         guard fcopyfile(fileDescriptor, descriptor, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_STAT)) == 0 else {
             throw POSIXError(.init(rawValue: errno) ?? .EIO)

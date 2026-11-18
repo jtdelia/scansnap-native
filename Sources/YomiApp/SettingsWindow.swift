@@ -358,6 +358,8 @@ struct ProfileEditor: View {
                         ForEach(ScanProfile.TextRecognitionLanguage.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
                     .disabled(!profile.searchablePDF)
+                    Toggle("Export business cards (vCard) and receipts (CSV and JSON)", isOn: $profile.exportFields)
+                        .disabled(!profile.searchablePDF)
                 }
                 if !profile.fileFormat.savesPagesSeparately {
                     Toggle("Split into several files", isOn: Binding(

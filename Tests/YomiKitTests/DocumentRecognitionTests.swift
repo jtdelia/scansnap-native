@@ -38,7 +38,7 @@ enum DocumentFixture {
         render(font: "Helvetica", size: 36) { _, _ in }
     }
 
-    private static func render(font: String, size: CGFloat, content: (CGContext, (String, Int, Int) -> Void) -> Void) -> ProcessedPage {
+    static func render(font: String, size: CGFloat, content: (CGContext, (String, Int, Int) -> Void) -> Void) -> ProcessedPage {
         let context = CGContext(data: nil, width: 1000, height: 700, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
         context.setFillColor(gray: 1, alpha: 1)

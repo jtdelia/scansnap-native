@@ -182,7 +182,7 @@ struct OCRBatchTests {
             #expect(pixels(saved) != pixels(compressed))
         }
         #expect(FileManager.default.fileExists(atPath: staged.appendingPathComponent("page-1.png").path))
-        try await offTheTaskPool { try OCRJob(batch: assigned, folder: staged, helper: helper.script).wait() }
+        _ = try await offTheTaskPool { try OCRJob(batch: assigned, folder: staged, helper: helper.script).wait() }
         #expect(files.map(\.lastPathComponent) == ["Invoices_001.pdf", "Invoices_003.pdf"])
         let pdfs = try files.map { try #require(PDFDocument(url: $0)) }
         #expect(pdfs.map(\.pageCount) == [2, 1])
@@ -227,7 +227,7 @@ struct OCRBatchTests {
         let recognition = try #require(pending)
         defer {
             try? lock.close()
-            try? recognition.wait()
+            _ = try? recognition.wait()
         }
         let first = try #require(batch.files.first)
         let outcome = ScanOutcome(files: batch.files, sheets: 1, pages: 1, blankPagesSkipped: 0)

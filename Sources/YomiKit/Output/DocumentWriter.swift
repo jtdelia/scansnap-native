@@ -23,7 +23,7 @@ public enum DocumentWriter {
 
     /// A file name before its extension. Only `stem`, the part from the name pattern, is ever shortened; the
     /// page, clash and `_original` suffixes Yomi adds are always kept whole.
-    struct FileName {
+    struct FileName: Codable {
         var stem: String
         var suffix = ""
 
@@ -220,6 +220,53 @@ public enum DocumentWriter {
             bytes += byteCount(String(character))
             return bytes <= limit
         }.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func publishPDF(_ pdf: URL, sidecars: [(ext: String, data: Data)], in folder: URL, name: FileName,
+                           writeSidecar: (Data, FileHandle) throws -> Void = { try $1.write(contentsOf: $0) }) throws -> [URL] {
+        let directory = try PDFDirectory(ScanFolder(root: folder, subfolders: [], createIfMissing: false))
+        return try publishPDF(pdf, sidecars: sidecars, in: directory, name: name, writeSidecar: writeSidecar)
+    }
+
+    static func publishPDF(_ pdf: URL, sidecars: [(ext: String, data: Data)], in directory: PDFDirectory, name: FileName,
+                           reservation: PDFReservation? = nil,
+                           writeSidecar: (Data, FileHandle) throws -> Void = { try $1.write(contentsOf: $0) }) throws -> [URL] {
+        let extensions = ["pdf"] + sidecars.map(\.ext)
+        func publish(_ candidate: FileName) throws -> Bool {
+            let urls = destinations(in: directory.url, name: candidate, extensions: extensions)
+            let stem = urls[0].deletingPathExtension().lastPathComponent
+            let claim = try urls[0] == reservation?.output ? reservation : PDFReservation.claim(FileName(stem: stem), in: directory)
+            guard let claim else { return false }
+            return try claim.publishGroup(urls) { index, output in
+                if index == 0 {
+                    let input = try FileHandle(forReadingFrom: pdf)
+                    try input.copyPDF(to: output.fileDescriptor)
+                } else {
+                    try writeSidecar(sidecars[index - 1].data, output)
+                }
+            }
+        }
+        if let preferred = reservation?.name, preferred.stem == name.stem, preferred.suffix != name.suffix, try publish(preferred) {
+            return destinations(in: directory.url, name: preferred, extensions: extensions)
+        }
+        let chosen = try availableName(name, take: publish)
+        return destinations(in: directory.url, name: chosen, extensions: extensions)
+    }
+
+    static func destinations(in folder: URL, name: FileName, extensions: [String]) -> [URL] {
+        let extensionBytes = extensions.map(byteCount).max() ?? 0
+        let stem = shortened(name.stem, toBytes: maxNameBytes - byteCount(name.suffix) - 1 - extensionBytes)
+        return extensions.map { folder.appendingPathComponent("\(stem)\(name.suffix).\($0)") }
+    }
+
+    static func availableName(_ name: FileName, take: (FileName) throws -> Bool) rethrows -> FileName {
+        var candidate = name
+        var counter = 2
+        while try !take(candidate) {
+            candidate.suffix = "\(name.suffix) (\(counter))"
+            counter += 1
+        }
+        return candidate
     }
 
     static func reservePDF(in directory: PDFDirectory, _ name: FileName) throws -> PDFReservation {
