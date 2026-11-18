@@ -47,7 +47,7 @@ struct ScanFolder {
                 let file = url.appendingPathComponent(filename)
                 let code = publishFile(temporary, from: parent, as: filename, in: parent)
                 if code == 0 { return (candidate, file) }
-                guard code == EEXIST else { throw FolderError(file, code) }
+                guard code == EEXIST else { throw FolderError(file, code, mayHavePartialCopy: true) }
                 candidate.suffix = "\(name.suffix) (\(counter))"
                 counter += 1
             }
@@ -65,11 +65,12 @@ struct ScanFolder {
         let description: String
         var errorDescription: String? { description }
 
-        init(_ url: URL, _ code: Int32) {
+        init(_ url: URL, _ code: Int32, mayHavePartialCopy: Bool = false) {
             let reason = code == ENOTDIR || code == ELOOP
                 ? "Use a folder here. Generated subfolders cannot be symbolic links."
                 : Errno(rawValue: code).description
-            description = "Couldn't save to \(url.path). \(reason)"
+            let detail = mayHavePartialCopy ? "An incomplete copy may remain there. " : ""
+            description = "Couldn't save to \(url.path). \(detail)\(reason)"
         }
     }
 }

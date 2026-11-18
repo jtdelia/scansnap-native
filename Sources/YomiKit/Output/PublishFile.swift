@@ -19,19 +19,16 @@ private func copyFileExclusively(_ source: String, in sourceDirectory: Int32,
     let input = openat(sourceDirectory, source, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
     guard input >= 0 else { return errno }
     defer { close(input) }
+    return writeExclusiveCopy(as: name, in: destinationDirectory) { output in
+        fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_ALL)) == 0 ? 0 : errno
+    }
+}
+
+func writeExclusiveCopy(as name: String, in destinationDirectory: Int32, _ copy: (Int32) -> Int32) -> Int32 {
     let output = openat(destinationDirectory, name, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
     guard output >= 0 else { return errno }
 
-    var code = fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_ALL)) == 0 ? 0 : errno
-    var created = stat()
-    let identified = fstat(output, &created) == 0
-    if close(output) != 0, code == 0 { code = errno }
-    if code != 0, identified {
-        var entry = stat()
-        if fstatat(destinationDirectory, name, &entry, AT_SYMLINK_NOFOLLOW) == 0,
-           entry.st_dev == created.st_dev, entry.st_ino == created.st_ino {
-            unlinkat(destinationDirectory, name, 0)
-        }
-    }
+    let code = copy(output)
+    if close(output) != 0, code == 0 { return errno }
     return code
 }

@@ -3,6 +3,31 @@ import Testing
 @testable import YomiKit
 
 struct PublishFileTests {
+    @Test(arguments: [false, true])
+    func failedExclusiveCopyKeepsTheFileAtTheDestination(replaced: Bool) throws {
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: folder) }
+        let directory = open(folder.path, O_SEARCH | O_CLOEXEC)
+        try #require(directory >= 0)
+        defer { close(directory) }
+        let partial = Data("partial scan".utf8)
+        let competing = Data("another file".utf8)
+        try competing.write(to: folder.appendingPathComponent("other.pdf"))
+
+        let code = writeExclusiveCopy(as: "scan.pdf", in: directory) { output in
+            #expect(partial.withUnsafeBytes { write(output, $0.baseAddress, $0.count) } == partial.count)
+            if replaced {
+                #expect(renameat(directory, "other.pdf", directory, "scan.pdf") == 0)
+            }
+            return ENOSPC
+        }
+
+        #expect(code == ENOSPC)
+        #expect(try Data(contentsOf: folder.appendingPathComponent("scan.pdf")) == (replaced ? competing : partial))
+    }
+
     @Test func publishesFromAStagingSubfolderWithoutOverwritingAFileOrDanglingLink() throws {
         let fm = FileManager.default
         let volume = ProcessInfo.processInfo.environment["YOMI_TEST_VOLUME"].map { URL(filePath: $0) } ?? fm.temporaryDirectory
