@@ -164,7 +164,6 @@ package struct ScanHistory: Codable {
         let stem = DocumentWriter.fileSafe(proposed)
         guard !["", ".", ".."].contains(stem), !stem.utf8.contains(0) else { throw CocoaError(.fileWriteInvalidFileName) }
         let old = file.url.deletingPathExtension().lastPathComponent
-        guard stem != old else { return }
         try file.move(to: stem) { urls, identities in
             var next = self
             next.batches[batch].files[index].urls = urls

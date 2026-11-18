@@ -61,6 +61,19 @@ path in the error message. Yomi keeps the originals until the copies are complet
 and the new names are saved in history. An interruption can leave both sets of names.
 If a file changes during cleanup, check the paths in the error message before retrying.
 
+For a capitalization change on case-insensitive APFS or exFAT, Yomi saves the
+requested name in history before changing any directory entry. If Yomi quits
+partway through, Finder may show `FIRST.pdf` alongside `First.csv`. In Recent
+Scans, click Rename and save the displayed name again to finish the group.
+Both spellings open the same file. If reconnecting the drive changes its device
+ID, Yomi refuses the retry. Verify the files in Finder and finish the rename there.
+If another app replaces a file during a spelling change, the replacement can
+take the requested spelling. Yomi preserves its contents and reports the changed file.
+
+macOS gives an empty exFAT file a new file ID when its capitalization changes.
+If a scan includes one, Yomi leaves the group and its history alone. In Recent
+Scans, rename the group to a different stem first, then to the spelling you want.
+
 The `yomi` command-line tool drives the same code without the app:
 
 ```sh

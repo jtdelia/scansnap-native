@@ -3,9 +3,12 @@ import Foundation
 import Testing
 @testable import YomiKit
 
+private let renameVolume = ProcessInfo.processInfo.environment["YOMI_TEST_VOLUME"].map { URL(filePath: $0) }
+    ?? FileManager.default.temporaryDirectory
+private let caseSensitive = pathconf(renameVolume.path, _PC_CASE_SENSITIVE) == 1
+
 struct RecentFileRenameTests {
-    let folder = (ProcessInfo.processInfo.environment["YOMI_TEST_VOLUME"].map { URL(filePath: $0) }
-        ?? FileManager.default.temporaryDirectory).appendingPathComponent("YomiRename-\(UUID())")
+    let folder = renameVolume.appendingPathComponent("YomiRename-\(UUID())")
     let historyFolder = FileManager.default.temporaryDirectory.appendingPathComponent("YomiHistory-\(UUID())")
     var location: URL { historyFolder.appendingPathComponent("History.json") }
     let extensions = ["pdf", "csv", "json"]
@@ -133,22 +136,155 @@ struct RecentFileRenameTests {
         #expect(FileManager.default.fileExists(atPath: urls("Full")[2].path) == false)
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["YOMI_TEST_VOLUME"] == nil), arguments: [false, true])
-    func preservesLetterCaseEditsOnAPFS(failHistory: Bool) throws {
+    private func scanNames() throws -> Set<String> {
+        Set(try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") })
+    }
+
+    @Test(arguments: [false, true])
+    func savesExactLetterCaseWithTheOriginalIdentities(failHistory: Bool) throws {
+        defer { cleanUp() }
+        var history = try record(contents)
+        try history.rename(history.batches[0].files[0].id, to: "First", at: location)
+        let original = history.batches[0].files[0]
+        let before = try Data(contentsOf: location)
+        if failHistory {
+            #expect(throws: (any Error).self) {
+                try history.rename(original.id, to: "FIRST", at: location.appendingPathComponent("History"))
+            }
+            #expect(try Data(contentsOf: location) == before)
+        } else {
+            try history.rename(original.id, to: "FIRST", at: location)
+        }
+        let file = try ScanHistory.load(from: location).batches[0].files[0]
+        #expect(file.urls == urls(failHistory ? "First" : "FIRST"))
+        #expect(file.identities == original.identities)
+        #expect(try file.urls.map(SavedFileIdentity.init) == file.identities)
+        #expect(try file.urls.map { try Data(contentsOf: $0) } == contents)
+        #expect(try scanNames() == Set(file.urls.map(\.lastPathComponent)))
+    }
+
+    @Test(.enabled(if: !caseSensitive))
+    func keepsOriginalDirectoryEntriesAtTheCaseRenameCommit() throws {
+        defer { cleanUp() }
+        let original = try record(contents).batches[0].files[0]
+        var called = false
+        #expect(throws: POSIXError(.EACCES)) {
+            try original.move(to: "ORIGINAL") { names, identities in
+                called = true
+                #expect(try scanNames() == Set(original.urls.map(\.lastPathComponent)))
+                #expect(names == urls("ORIGINAL"))
+                #expect(try names.map(SavedFileIdentity.init) == identities)
+                #expect(identities == original.identities)
+                #expect(try names.map { try Data(contentsOf: $0) } == contents)
+                throw POSIXError(.EACCES)
+            }
+        }
+        #expect(called)
+        #expect(try scanNames() == Set(original.urls.map(\.lastPathComponent)))
+    }
+
+    @Test(.enabled(if: !caseSensitive), arguments: [0, 1, 3])
+    func savingTheCommittedNameFinishesAnInterruptedCaseRename(finished: Int) throws {
         defer { cleanUp() }
         var history = try record(contents)
         let original = history.batches[0].files[0]
-        if failHistory {
-            #expect(throws: (any Error).self) {
-                try history.rename(original.id, to: "ORIGINAL", at: location.appendingPathComponent("History"))
-            }
-        } else {
-            try history.rename(original.id, to: "ORIGINAL", at: location)
+        try history.rename(original.id, to: "ORIGINAL", at: location)
+        let saved = try Data(contentsOf: location)
+        let names = urls("ORIGINAL")
+        for index in finished..<names.count {
+            try #require(Darwin.rename(names[index].path, original.urls[index].path) == 0)
         }
+        var reloaded = try ScanHistory.load(from: location)
+        let file = reloaded.batches[0].files[0]
+        #expect(try file.urls.map(SavedFileIdentity.init) == file.identities)
+        try reloaded.rename(file.id, to: "ORIGINAL", at: location)
+        #expect(try scanNames() == Set(names.map(\.lastPathComponent)))
+        #expect(try Data(contentsOf: location) == saved)
+        #expect(try names.map { try Data(contentsOf: $0) } == contents)
+    }
+
+    @Test(.enabled(if: caseSensitive), arguments: [false, true])
+    func caseSensitiveSidecarCollisionKeepsTheOtherEntry(hardLink: Bool) throws {
+        defer { cleanUp() }
+        var history = try record(contents)
+        let original = history.batches[0].files[0]
+        let competitor = urls("ORIGINAL")[2]
+        if hardLink { try FileManager.default.linkItem(at: original.urls[2], to: competitor) }
+        else { try Data("other".utf8).write(to: competitor) }
+        let identity = try SavedFileIdentity(competitor)
+        try history.rename(original.id, to: "ORIGINAL", at: location)
         let file = try ScanHistory.load(from: location).batches[0].files[0]
-        #expect(file.urls == urls(failHistory ? "Original" : "ORIGINAL"))
-        #expect(file.identities == original.identities)
-        let entries = try FileManager.default.contentsOfDirectory(atPath: folder.path)
-        #expect(Set(entries) == Set(file.urls.map(\.lastPathComponent)))
+        #expect(file.urls == urls("ORIGINAL (2)"))
+        #expect(try file.urls.map { try Data(contentsOf: $0) } == contents)
+        #expect(try SavedFileIdentity(competitor) == identity)
+        #expect(try Data(contentsOf: competitor) == (hardLink ? contents[2] : Data("other".utf8)))
+        #expect(try scanNames() == Set(file.urls.map(\.lastPathComponent) + [competitor.lastPathComponent]))
+    }
+
+    @Test(.enabled(if: !caseSensitive))
+    func keepsTheReplacementWhenACaseAliasChangesDuringCommit() throws {
+        defer { cleanUp() }
+        let original = try record(contents).batches[0].files[0]
+        let moved = folder.appendingPathComponent("Moved.json")
+        let other = Data("other".utf8)
+        var committed = false
+        do {
+            try original.move(to: "ORIGINAL") { _, _ in
+                try FileManager.default.moveItem(at: original.urls[2], to: moved)
+                try other.write(to: original.urls[2])
+                committed = true
+            }
+            Issue.record("Expected the replacement to stop the case rename")
+        } catch {
+            #expect(error.localizedDescription.contains(urls("ORIGINAL")[2].path))
+        }
+        #expect(committed)
+        #expect(try Data(contentsOf: original.urls[2]) == other)
+        #expect(try scanNames().contains("Original.json"))
+        #expect(try SavedFileIdentity(moved) == original.identities[2])
+        #expect(try Data(contentsOf: moved) == contents[2])
+    }
+
+    @Test func caseAliasUsesTheVolumesOwnSpellingRules() throws {
+        defer { cleanUp() }
+        var history = try record(contents)
+        let id = history.batches[0].files[0].id
+        try history.rename(id, to: "Maße", at: location)
+        let other = urls("Masse")[0]
+        if FileManager.default.fileExists(atPath: other.path) { return }
+        try Data("other".utf8).write(to: other)
+        try history.rename(id, to: "MAßE", at: location)
+        let file = try ScanHistory.load(from: location).batches[0].files[0]
+        #expect(file.urls == urls("MAßE"))
+        #expect(try scanNames() == Set(file.urls.map(\.lastPathComponent) + [other.lastPathComponent]))
+        #expect(try Data(contentsOf: other) == Data("other".utf8))
+    }
+
+    @Test func emptySidecarKeepsAUsableHistoryIdentity() throws {
+        defer { cleanUp() }
+        let bytes = [contents[0], contents[1], Data()]
+        var history = try record(bytes)
+        let original = history.batches[0].files[0]
+        let before = try Data(contentsOf: location)
+        var volume = statfs()
+        try #require(statfs(folder.path, &volume) == 0)
+        if withUnsafeBytes(of: volume.f_fstypename, { $0.starts(with: "exfat\0".utf8) }) {
+            do {
+                try history.rename(original.id, to: "ORIGINAL", at: location)
+                Issue.record("Expected an empty exFAT file to keep its original identity")
+            } catch {
+                #expect(error.localizedDescription.contains(original.urls[2].path))
+            }
+            #expect(try Data(contentsOf: location) == before)
+            #expect(try scanNames() == Set(original.urls.map(\.lastPathComponent)))
+            #expect(try original.urls.map(SavedFileIdentity.init) == original.identities)
+            try history.rename(original.id, to: "Temporary", at: location)
+            history = try ScanHistory.load(from: location)
+        }
+        try history.rename(original.id, to: "ORIGINAL", at: location)
+        let file = try ScanHistory.load(from: location).batches[0].files[0]
+        #expect(try scanNames() == Set(urls("ORIGINAL").map(\.lastPathComponent)))
+        #expect(try file.urls.map(SavedFileIdentity.init) == file.identities)
+        #expect(try file.urls.map { try Data(contentsOf: $0) } == bytes)
     }
 }

@@ -12,7 +12,6 @@ private enum RenameCollision: Error { case occupied }
 private struct RenameFile {
     let url: URL
     let handle: FileHandle
-    var changedCase = false
 
     func verify() throws {
         guard let entry = try? SavedFileIdentity(url), entry == (try SavedFileIdentity(descriptor: handle.fileDescriptor)) else {
@@ -26,16 +25,7 @@ private struct RenameFile {
             try linked.verify()
             return linked
         }
-        if errno == EEXIST {
-            if url.lastPathComponent.caseInsensitiveCompare(destination.lastPathComponent) == .orderedSame,
-               (try? SavedFileIdentity(destination)) == (try SavedFileIdentity(descriptor: handle.fileDescriptor)) {
-                if renamex_np(url.path, destination.path, UInt32(RENAME_EXCL)) == 0 {
-                    return Self(url: destination, handle: handle, changedCase: true)
-                }
-                guard errno == EEXIST || errno == ENOTSUP else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
-            }
-            throw RenameCollision.occupied
-        }
+        if errno == EEXIST { throw RenameCollision.occupied }
         guard errno == ENOTSUP else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
         var copy: FileHandle?
         var created = false
@@ -57,13 +47,6 @@ private struct RenameFile {
         let copied = Self(url: destination, handle: copy)
         try copied.verify()
         return copied
-    }
-
-    func restoreCase(at original: URL) throws {
-        try verify()
-        guard renamex_np(url.path, original.path, UInt32(RENAME_EXCL)) == 0 else {
-            throw RenameError("Couldn't restore \(original.path). Check \(url.path).")
-        }
     }
 }
 
@@ -103,6 +86,71 @@ private struct RenameCleanup {
 }
 
 extension RecentFile {
+    private func moveCase(_ originals: [RenameFile], to names: [URL], in folder: URL,
+                          commit: ([URL], [SavedFileIdentity]) throws -> Void) throws -> Bool {
+        let directory = open(folder.path, O_DIRECTORY | O_CLOEXEC)
+        guard directory >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        defer { close(directory) }
+        guard fpathconf(directory, _PC_CASE_SENSITIVE) == 0 else { return names == urls }
+        var volume = statfs()
+        guard fstatfs(directory, &volume) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        let exfat = withUnsafeBytes(of: volume.f_fstypename) { $0.starts(with: "exfat\0".utf8) }
+        var changes: [(from: String, to: String, identity: SavedFileIdentity)] = []
+        let saved = try originals.map { try SavedFileIdentity(descriptor: $0.handle.fileDescriptor) }
+
+        func attributes(_ name: String) throws -> stat {
+            var value = stat()
+            guard fstatat(directory, name, &value, AT_SYMLINK_NOFOLLOW) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+            return value
+        }
+
+        for (index, target) in names.enumerated() {
+            let source = urls[index]
+            let name = target.lastPathComponent
+            guard source.deletingLastPathComponent() == folder,
+                  source.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame else { return false }
+            let identity = saved[index]
+            let targetAttributes: stat
+            do { targetAttributes = try attributes(name) }
+            catch let error as POSIXError where error.code == .ENOENT { return false }
+            guard (try? SavedFileIdentity(targetAttributes)) == identity else { return false }
+            guard let spelling = try URL(filePath: source.path).resourceValues(forKeys: [.nameKey]).name,
+                  spelling == (try URL(filePath: target.path).resourceValues(forKeys: [.nameKey]).name) else { return false }
+            if spelling != name {
+                guard !exfat || targetAttributes.st_size > 0 else {
+                    throw RenameError("macOS changes the file ID of empty exFAT files such as \(source.path) when their case changes. Rename the scan to a different name first, then to the name you want.")
+                }
+                changes.append((spelling, name, identity))
+            }
+        }
+        for original in originals { try original.verify() }
+        if names != urls { try commit(names, saved) }
+        do {
+            for change in changes {
+                guard try SavedFileIdentity(attributes(change.from)) == change.identity,
+                      try SavedFileIdentity(attributes(change.to)) == change.identity else {
+                    throw RenameError("The file at \(folder.appendingPathComponent(change.to).path) has changed.")
+                }
+                if renameatx_np(directory, change.from, directory, change.to, UInt32(RENAME_EXCL)) != 0 {
+                    guard errno == ENOTSUP, exfat, renameat(directory, change.from, directory, change.to) == 0 else {
+                        let reason = String(cString: strerror(errno))
+                        throw RenameError("Couldn't rename \(folder.appendingPathComponent(change.from).path). \(reason)")
+                    }
+                }
+            }
+            let finished = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path))
+            for (index, target) in names.enumerated() {
+                try originals[index].verify()
+                guard finished.contains(target.lastPathComponent), try SavedFileIdentity(target) == saved[index] else {
+                    throw RenameError("Check the file at \(target.path).")
+                }
+            }
+        } catch {
+            throw RenameError("History has been saved. \(error.localizedDescription) Check the files in Finder before retrying the same name in Recent Scans.")
+        }
+        return true
+    }
+
     func move(to stem: String, commit: ([URL], [SavedFileIdentity]) throws -> Void) throws {
         guard urls.count == identities.count else { throw CocoaError(.fileReadCorruptFile) }
         let originals = try zip(urls, identities).map { url, identity in
@@ -115,6 +163,13 @@ extension RecentFile {
             return RenameFile(url: url, handle: handle)
         }
         let folder = url.deletingLastPathComponent()
+        let old = url.deletingPathExtension().lastPathComponent
+        if stem.caseInsensitiveCompare(old) == .orderedSame {
+            let names = stem == old ? urls : DocumentWriter.destinations(
+                in: folder, name: .init(stem: stem), extensions: urls.map(\.pathExtension))
+            if try moveCase(originals, to: names, in: folder, commit: commit) { return }
+            if stem == old { throw RenameError("Couldn't verify the saved filenames in \(folder.path).") }
+        }
         let cleanup = try RenameCleanup(in: folder)
         defer {
             rmdir(cleanup.folder.path)
@@ -134,10 +189,8 @@ extension RecentFile {
             } catch {
                 var failures: [String] = []
                 for (original, file) in zip(originals, published).reversed() where original.url != file.url {
-                    do {
-                        if file.changedCase { try file.restoreCase(at: original.url) }
-                        else { try cleanup.discard(file, keeping: original) }
-                    } catch { failures.append(error.localizedDescription) }
+                    do { try cleanup.discard(file, keeping: original) }
+                    catch { failures.append(error.localizedDescription) }
                 }
                 if !failures.isEmpty {
                     throw RenameError(([error.localizedDescription] + failures).joined(separator: " "))
@@ -147,7 +200,7 @@ extension RecentFile {
             }
             do {
                 for file in published { try file.verify() }
-                for (original, file) in zip(originals, published) where original.url != file.url && !file.changedCase {
+                for (original, file) in zip(originals, published) where original.url != file.url {
                     try cleanup.discard(original, keeping: file)
                 }
             } catch {
