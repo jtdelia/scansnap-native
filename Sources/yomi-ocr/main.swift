@@ -8,7 +8,8 @@ guard CommandLine.arguments.count == 2 else {
 do {
     let folder = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
     let batch = try JSONDecoder().decode(OCRBatch.self, from: Data(contentsOf: folder.appendingPathComponent("manifest.json")))
-    try batch.writePDFs(in: folder, textLayer: PDFTextLayer.draw)
+    let pages = try await batch.recognizePages(in: folder)
+    try batch.writePDFs(in: folder, recognizedPages: pages)
 } catch {
     ScanLog.write("  yomi-ocr: \(error)")
     FileHandle.standardError.write(Data("yomi-ocr: \(error)\n".utf8))
