@@ -21,7 +21,7 @@ package struct RecentFile: Codable, Identifiable {
     package let id: UUID
     var urls: [URL]
     let identities: [SavedFileIdentity?]
-    let naming: PageNaming?
+    var naming: PageNaming?
     var merchant: String?
     var ruleID: UUID?
 
@@ -78,31 +78,51 @@ package struct RecentFile: Codable, Identifiable {
         }
     }
 
-    func correction(from old: String, to stem: String, rules: [LearnedName], now: Date) -> LearnedName? {
+    mutating func correction(from old: String, to stem: String, rules: [LearnedName], now: Date) -> LearnedName? {
         guard let signature = naming?.signature else { return nil }
         let id = ruleID.flatMap { id in rules.first { $0.id == id }?.id } ?? signature.closest(in: rules)?.id ?? UUID()
-        if let merchant, let corrected = correctedMerchant(merchant, in: old, renamedTo: stem) {
-            return LearnedName(id: id, signature: signature, matchedText: signature.merchant ?? merchant,
-                               replacement: corrected, changesMerchant: true, edited: now, lastUsed: now)
+        let previous = merchant
+        let edit = merchantEdit(from: old, to: stem)
+        merchant = edit?.name
+        naming?.merchantSeparators = edit?.separators ?? []
+        ruleID = id
+        if let merchant, let previous, merchant != previous {
+            return LearnedName(id: id, signature: signature, matchedText: signature.merchant ?? previous,
+                               replacement: merchant, changesMerchant: true, edited: now, lastUsed: now)
         }
         return LearnedName(id: id, signature: signature, matchedText: old, replacement: stem,
                            changesMerchant: false, edited: now, lastUsed: now)
     }
 
-    private func correctedMerchant(_ merchant: String, in old: String, renamedTo stem: String) -> String? {
+    private func merchantEdit(from old: String, to stem: String) -> (name: String, separators: [String])? {
+        guard let merchant else { return nil }
         let previous = DocumentWriter.fileSafe(merchant)
         guard !previous.isEmpty else { return nil }
-        let parts = naming?.merchantSeparators ?? old.components(separatedBy: previous)
+        var parts = naming?.merchantSeparators ?? old.components(separatedBy: previous)
         let occurrences = parts.count - 1
         guard occurrences > 0, naming?.merchantSeparators != nil || occurrences == 1 else { return nil }
         let rendered = parts.joined(separator: previous)
         guard old.hasPrefix(rendered) else { return nil }
-        let suffix = old.dropFirst(rendered.count)
-        let length = stem.count - parts.reduce(suffix.count) { $0 + $1.count }
+        let publishedSuffix = old.dropFirst(rendered.count)
+        guard publishedSuffix.wholeMatch(of: #/(?:_[0-9]{3,})?(?: \((?:[2-9]|[1-9][0-9]+)\))*/#) != nil else { return nil }
+        parts[occurrences] += publishedSuffix
+
+        if let range = stem.range(of: old) {
+            guard range == stem.range(of: old, options: .backwards) else { return nil }
+            let prefix = stem[..<range.lowerBound], suffix = stem[range.upperBound...]
+            let touchesMerchant = suffix.isEmpty && parts[0].isEmpty || prefix.isEmpty && parts[occurrences].isEmpty
+            let extendsWord = (prefix + suffix).allSatisfy { $0.isLetter || $0.isNumber }
+            if occurrences > 1 || !touchesMerchant || !extendsWord {
+                parts[0] = prefix + parts[0]
+                parts[occurrences] += suffix
+                return (merchant, parts)
+            }
+        }
+        let length = stem.count - parts.reduce(0) { $0 + $1.count }
         guard length > 0, length.isMultiple(of: occurrences) else { return nil }
         let candidate = String(stem.dropFirst(parts[0].count).prefix(length / occurrences))
-        guard candidate != previous, parts.joined(separator: candidate) + suffix == stem else { return nil }
-        return candidate
+        guard candidate != previous, parts.joined(separator: candidate) == stem else { return nil }
+        return (candidate, parts)
     }
 }
 
@@ -180,10 +200,8 @@ package struct ScanHistory: Codable {
         try file.move(to: stem) { urls in
             var next = self
             next.batches[batch].files[index].urls = urls
-            if let rule = file.correction(from: old, to: stem, rules: rules, now: .now) {
+            if let rule = next.batches[batch].files[index].correction(from: old, to: stem, rules: rules, now: .now) {
                 next.remember(rule)
-                next.batches[batch].files[index].ruleID = rule.id
-                next.batches[batch].files[index].merchant = rule.changesMerchant ? rule.replacement : nil
             }
             try next.save(to: location)
             self = next
