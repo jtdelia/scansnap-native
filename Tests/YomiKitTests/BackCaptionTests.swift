@@ -105,7 +105,7 @@ struct BackCaptionTests {
         Side.Text(string: string, font: "Bradley Hand Bold", size: 32, ink: (35, 45, 120), x: 60, y: y)
     }
 
-    private static let textRecognition = Task<Bool, Never>(priority: .high) {
+    static let textRecognition = Task<Bool, Never>(priority: .high) {
         do {
             return try await offTheTaskPool {
                 let word = Side.Text(string: "Recognition", font: "Helvetica", size: 48, ink: (0, 0, 0), x: 60, y: 210)
