@@ -24,7 +24,7 @@ enum PDFTextLayer {
     struct RecognizedLine {
         let text: String
         let box: CGRect
-        var direction: RecognizedTextObservation.Direction?
+        var direction: RecognizedTextObservation.Direction? = .leftToRight
     }
 
     private struct RecognitionFailure: Error, CustomStringConvertible {

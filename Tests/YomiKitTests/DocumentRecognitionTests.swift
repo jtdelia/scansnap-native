@@ -198,9 +198,11 @@ struct DocumentRecognitionTests {
         let lines = [
             PDFTextLayer.RecognizedLine(text: "請求書", box: CGRect(x: 0.10, y: 0.78, width: 0.14, height: 0.065)),
             PDFTextLayer.RecognizedLine(text: "Delivery receipt", box: CGRect(x: 0.10, y: 0.62, width: 0.39, height: 0.082)),
-            PDFTextLayer.RecognizedLine(text: "東京支店", box: CGRect(x: 0.82, y: 0.557, width: 0.046, height: 0.291)),
+            PDFTextLayer.RecognizedLine(text: "東京支店", box: CGRect(x: 0.82, y: 0.557, width: 0.046, height: 0.291),
+                                        direction: nil),
             PDFTextLayer.RecognizedLine(text: "大阪", box: CGRect(x: 0.70, y: 542.0 / 700, width: 0.046, height: 86.0 / 700),
                                         direction: .topToBottom),
+            PDFTextLayer.RecognizedLine(text: "Ij", box: CGRect(x: 0.45, y: 0.10, width: 0.035, height: 0.16)),
         ]
         let context = try #require(CGContext(file as CFURL, mediaBox: nil, nil))
         try PDFWriter.write(pages: 1, in: context, jpegQuality: 0.75, textLayer: { _, box, context in
@@ -208,6 +210,13 @@ struct DocumentRecognitionTests {
         }) { _ in (fixture.image, fixture.resolution) }
         let document = try #require(PDFDocument(url: file))
         try expectJapaneseSelections(in: document)
+        let page = try #require(document.page(at: 0))
+        let text = try #require(page.string as NSString?)
+        let narrow = text.range(of: "Ij")
+        try #require(narrow.location != NSNotFound)
+        let first = page.characterBounds(at: narrow.location), last = page.characterBounds(at: narrow.location + 1)
+        #expect(last.midX > first.midX)
+        #expect(abs(last.midY - first.midY) < 1)
     }
 
     @Test func languageChoicesConfigureVisionAndDataDetection() {
