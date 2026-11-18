@@ -59,3 +59,9 @@ _Avoid_: Image, scan
 **Back caption**:
 Writing read from the back of a print and stored as the photo's caption; the back itself is not saved.
 _Avoid_: Back note, annotation
+
+## Document intelligence
+
+**Page kind**:
+What a page is for field reading and file naming: *Document*, *Business card*, *Receipt*, or *Print*. (Use *Document* only as a page kind; a physical item fed through the scanner is still a *sheet*, and the saved picture of a print is a *photo*.)
+_Avoid_: Document type, category, class
