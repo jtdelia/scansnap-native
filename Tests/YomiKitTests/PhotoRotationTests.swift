@@ -7,6 +7,7 @@ import Testing
 @testable import YomiKit
 
 /// Photo scan profiles rotate prints upright by faces first, then text, and otherwise leave them as fed.
+@Suite(.serialized)
 struct PhotoRotationTests {
     /// An upright snapshot of three people, AI-generated so it shows no real person.
     private static func familyPrint() throws -> CGImage {
