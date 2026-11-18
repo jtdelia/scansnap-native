@@ -113,14 +113,15 @@ struct PhotoRotationTests {
         #expect(try Self.looksLike(image, upright))
     }
 
-    @Test func sidewaysFacesTakePriorityOverUprightText() async throws {
+    @Test func uprightFacesTakePriorityOverSidewaysText() async throws {
         let note = CIImage(cgImage: try Self.notePrint(lineCount: 2))
         let faces = CIImage(cgImage: try Self.familyPrint()).oriented(.left)
             .transformed(by: CGAffineTransform(translationX: 710, y: 100))
         let print = faces.composited(over: note)
-        let asFed = try #require(CIContext().createCGImage(print, from: note.extent))
+        let composite = try #require(CIContext().createCGImage(print, from: note.extent))
+        let asFed = try Self.oriented(composite, .right)
         let image = try await Self.processedPhoto(asFed)
-        #expect(try Self.looksLike(image, Self.oriented(asFed, .right)))
+        #expect(try Self.looksLike(image, asFed))
     }
 
     @Test(arguments: [CGImagePropertyOrientation.up, .down, .left, .right], [false, true])
