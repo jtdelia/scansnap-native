@@ -12,6 +12,11 @@ public enum TIFFWriter {
         guard let destination = CGImageDestinationCreateWithURL(
             url as CFURL, UTType.tiff.identifier as CFString, pages.count, nil)
         else { throw ImageWriterError.cannotWrite(url) }
+        add(pages, to: destination, progress: progress)
+        guard CGImageDestinationFinalize(destination) else { throw ImageWriterError.cannotWrite(url) }
+    }
+
+    static func add(_ pages: [ProcessedPage], to destination: CGImageDestination, progress: ((Int) -> Void)?) {
         for (index, page) in pages.enumerated() {
             progress?(index)
             let properties: [CFString: Any] = [
@@ -21,6 +26,5 @@ public enum TIFFWriter {
             ]
             ImageWriter.addImage(page.image, to: destination, properties: properties, caption: page.caption)
         }
-        guard CGImageDestinationFinalize(destination) else { throw ImageWriterError.cannotWrite(url) }
     }
 }

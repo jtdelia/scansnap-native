@@ -28,13 +28,18 @@ public enum ImageWriter {
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil) else {
             throw ImageWriterError.cannotWrite(url)
         }
+        addImage(image, to: destination, resolution: resolution, quality: quality, caption: caption)
+        guard CGImageDestinationFinalize(destination) else { throw ImageWriterError.cannotWrite(url) }
+    }
+
+    static func addImage(_ image: CGImage, to destination: CGImageDestination, resolution: Int,
+                         quality: Double, caption: String?) {
         let properties: [CFString: Any] = [
             kCGImagePropertyDPIWidth: resolution,
             kCGImagePropertyDPIHeight: resolution,
             kCGImageDestinationLossyCompressionQuality: quality,
         ]
         addImage(image, to: destination, properties: properties, caption: caption)
-        guard CGImageDestinationFinalize(destination) else { throw ImageWriterError.cannotWrite(url) }
     }
 
     /// Adds `image`, with `caption` in the fields Photos reads as the caption on import and Spotlight indexes
