@@ -34,44 +34,47 @@ struct SidecarPublicationTests {
         #expect(try Data(contentsOf: source) == original)
         #expect(try Data(contentsOf: competitor) == existing)
     }
-    @Test func rollbackContinuesWhenOneOwnedSidecarCannotBeRemoved() throws {
+
+    @Test func collisionDuringPreparationRetriesBeforePublishingAnyFile() throws {
         let fm = FileManager.default
-        let folder = fm.temporaryDirectory.appendingPathComponent("YomiRollback-\(UUID())")
         try fm.createDirectory(at: folder, withIntermediateDirectories: false)
         defer { try? fm.removeItem(at: folder) }
-        let directory = try PDFDirectory(ScanFolder(root: folder, subfolders: []))
-        let reservation = try #require(try PDFReservation.claim(.init(stem: "Receipt"), in: directory))
-        let names = ["Receipt.pdf", "Receipt.csv", "Receipt.json"].map { folder.appendingPathComponent($0) }
-        defer { chflags(names[2].path, 0) }
-        let error = try #require(throws: CocoaError.self) {
-            try reservation.publishGroup(names, publish: { source, staging, name, parent, owningCopy in
-                if name == "Receipt.pdf" {
-                    #expect(chflags(names[2].path, UInt32(UF_IMMUTABLE)) == 0)
-                    return ENOSPC
-                }
-                return publishFile(source, from: staging, as: name, in: parent, owningCopy: owningCopy)
-            }) { _, file in try file.write(contentsOf: Data([42])) }
+        let source = folder.appendingPathComponent("completed.pdf")
+        try Data("prepared PDF".utf8).write(to: source)
+        let competitor = folder.appendingPathComponent("Receipt.pdf")
+        let existing = Data("other PDF".utf8)
+        let csv = Data("receipt".utf8)
+        let urls = try DocumentWriter.publishPDF(source, sidecars: [("csv", csv)], in: folder, name: .init(stem: "Receipt")) { data, file in
+            if !fm.fileExists(atPath: competitor.path) { try existing.write(to: competitor, options: .withoutOverwriting) }
+            try file.write(contentsOf: data)
         }
-        #expect(error.localizedDescription.contains("Receipt.json"))
-        #expect(!fm.fileExists(atPath: names[0].path))
-        #expect(!fm.fileExists(atPath: names[1].path))
-        #expect(try Data(contentsOf: names[2]) == Data([42]))
+        #expect(urls.map(\.lastPathComponent) == ["Receipt (2).pdf", "Receipt (2).csv"])
+        #expect(try Data(contentsOf: urls[0]) == Data(contentsOf: source))
+        #expect(try Data(contentsOf: urls[1]) == csv)
+        #expect(try Data(contentsOf: competitor) == existing)
+        #expect(try filesAfterReleasingReservations(in: folder) == ["Receipt (2).csv", "Receipt (2).pdf", "Receipt.pdf", "completed.pdf"])
     }
 
     @Test(arguments: [false, true])
-    func midPublicationFailurePreservesCompetingFiles(diskFull: Bool) throws {
+    func partialExportPreservesCompetingFilesAndReportsFinalPaths(diskFull: Bool) throws {
         let fm = FileManager.default
-        try fm.createDirectory(at: folder, withIntermediateDirectories: false)
         defer { try? fm.removeItem(at: folder) }
+        let profile = ScanProfile(name: "Scan", folderPath: folder.path, exportFields: true, namePattern: [.profileName])
+        let (batch, staged) = try OCRBatch.stage([DocumentFixture.blank], profile: profile, date: Date())
+        defer { try? fm.removeItem(at: staged) }
+        try batch.writePDFs(in: staged)
+        let pdf = staged.appendingPathComponent("result-0.pdf")
+        let page = staged.appendingPathComponent(try #require(batch.documents.first?.pages.first?.file))
+        let prepared = try Data(contentsOf: pdf), original = try Data(contentsOf: page)
         let directory = try PDFDirectory(ScanFolder(root: folder, subfolders: []))
         let reservation = try #require(try PDFReservation.claim(.init(stem: "Receipt"), in: directory))
-        let bytes = [Data("PDF".utf8), Data("CSV".utf8), Data("JSON".utf8)]
+        let bytes = [Data("CSV".utf8), Data("JSON".utf8)]
         let names = ["Receipt.pdf", "Receipt.csv", "Receipt.json"].map { folder.appendingPathComponent($0) }
         let competing = Data("other writer".utf8)
         let replaced = Data("replacement CSV".utf8)
         let result = Result {
-            try reservation.publishGroup(names, publish: { source, staging, name, parent, owningCopy in
-                if name == "Receipt.pdf" {
+            try reservation.publishGroup(names, pdf: pdf, publish: { source, staging, name, parent, owningCopy in
+                if name == names[0].lastPathComponent {
                     do {
                         try replaced.write(to: names[1], options: .atomic)
                         if !diskFull { try competing.write(to: names[0], options: .withoutOverwriting) }
@@ -86,17 +89,72 @@ struct SidecarPublicationTests {
                 return publishFile(source, from: staging, as: name, in: parent, owningCopy: owningCopy)
             }) { index, file in try file.write(contentsOf: bytes[index]) }
         }
-        if diskFull {
-            #expect(throws: POSIXError(.ENOSPC)) { try result.get() }
-            #expect(!fm.fileExists(atPath: names[0].path))
-        } else {
-            #expect(try !result.get())
-            #expect(try Data(contentsOf: names[0]) == competing)
-        }
+        #expect(try Data(contentsOf: names[0]) == (diskFull ? Data("AB".utf8) : competing))
         #expect(try Data(contentsOf: names[1]) == replaced)
-        #expect(!fm.fileExists(atPath: names[2].path))
-        for marker in try fm.contentsOfDirectory(atPath: folder.path) where marker.hasPrefix(".Yomi-PDF-") {
-            #expect(try fm.contentsOfDirectory(atPath: folder.appendingPathComponent(marker).path).isEmpty)
+        #expect(try Data(contentsOf: names[2]) == bytes[1])
+        #expect(try filesAfterReleasingReservations(in: folder) == names.map(\.lastPathComponent).sorted())
+        let error = try #require(throws: (any Error).self) { try result.get() }
+        #expect(error.localizedDescription.contains("Partial export"))
+        #expect(error.localizedDescription.contains(names[0].path))
+        #expect(error.localizedDescription.contains(names[1].path))
+        #expect(error.localizedDescription.contains(names[2].path))
+        #expect(error.localizedDescription.contains(pdf.path))
+        #expect(try Data(contentsOf: pdf) == prepared)
+        #expect(try Data(contentsOf: page) == original)
+    }
+
+    @Test func replacingAPublishedSidecarPreventsReportingACompleteGroup() throws {
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: folder) }
+        let directory = try PDFDirectory(ScanFolder(root: folder, subfolders: []))
+        let reservation = try #require(try PDFReservation.claim(.init(stem: "Receipt"), in: directory))
+        let names = ["Receipt.pdf", "Receipt.csv"].map { folder.appendingPathComponent($0) }
+        let pdf = folder.appendingPathComponent("completed.pdf")
+        try Data([42]).write(to: pdf)
+        let replacement = Data("another receipt".utf8)
+        let result = Result {
+            try reservation.publishGroup(names, pdf: pdf, publish: { source, staging, name, parent, owningCopy in
+                if name == "Receipt.pdf" {
+                    do { try replacement.write(to: names[1], options: .atomic) } catch { return EIO }
+                }
+                return publishFile(source, from: staging, as: name, in: parent, owningCopy: owningCopy)
+            }) { _, file in try file.write(contentsOf: Data([42])) }
         }
+        let error = try #require(throws: (any Error).self) { try result.get() }
+        #expect(error.localizedDescription.contains("Partial export"))
+        #expect(error.localizedDescription.contains(names[1].path))
+        #expect(error.localizedDescription.contains(names[0].path))
+        #expect(try Data(contentsOf: names[1]) == replacement)
+        #expect(try Data(contentsOf: names[0]) == Data([42]))
+        #expect(try filesAfterReleasingReservations(in: folder) == ["Receipt.csv", "Receipt.pdf", "completed.pdf"])
+    }
+
+    @Test func movingTheFolderReportsTheSidecarInItsNewLocation() throws {
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: folder) }
+        let destination = folder.appendingPathComponent("Scans")
+        let moved = folder.appendingPathComponent("Moved")
+        let directory = try PDFDirectory(ScanFolder(root: destination, subfolders: []))
+        let reservation = try #require(try PDFReservation.claim(.init(stem: "Receipt"), in: directory))
+        let names = ["Receipt.pdf", "Receipt.csv"].map { destination.appendingPathComponent($0) }
+        let pdf = folder.appendingPathComponent("completed.pdf")
+        try Data([42]).write(to: pdf)
+        let error = try #require(throws: CocoaError.self) {
+            try reservation.publishGroup(names, pdf: pdf, publish: { source, staging, name, parent, owningCopy in
+                if name == "Receipt.pdf" {
+                    do {
+                        try fm.moveItem(at: destination, to: moved)
+                        try fm.createDirectory(at: destination, withIntermediateDirectories: false)
+                    } catch { return EIO }
+                    return ENOSPC
+                }
+                return publishFile(source, from: staging, as: name, in: parent, owningCopy: owningCopy)
+            }) { _, file in try file.write(contentsOf: Data([42])) }
+        }
+        let csv = moved.appendingPathComponent("Receipt.csv")
+        #expect(error.localizedDescription.contains(csv.resolvingSymlinksInPath().path))
+        #expect(try Data(contentsOf: csv) == Data([42]))
+        #expect(try filesAfterReleasingReservations(in: moved) == ["Receipt.csv"])
+        #expect(try fm.contentsOfDirectory(atPath: destination.path).isEmpty)
     }
 }

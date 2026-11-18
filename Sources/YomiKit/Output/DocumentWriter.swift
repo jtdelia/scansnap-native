@@ -237,13 +237,8 @@ public enum DocumentWriter {
             let stem = urls[0].deletingPathExtension().lastPathComponent
             let claim = try urls[0] == reservation?.output ? reservation : PDFReservation.claim(FileName(stem: stem), in: directory)
             guard let claim else { return false }
-            return try claim.publishGroup(urls) { index, output in
-                if index == 0 {
-                    let input = try FileHandle(forReadingFrom: pdf)
-                    try input.copyPDF(to: output.fileDescriptor)
-                } else {
-                    try writeSidecar(sidecars[index - 1].data, output)
-                }
+            return try claim.publishGroup(urls, pdf: pdf) { index, output in
+                try writeSidecar(sidecars[index].data, output)
             }
         }
         if let preferred = reservation?.name, preferred.stem == name.stem, preferred.suffix != name.suffix, try publish(preferred) {

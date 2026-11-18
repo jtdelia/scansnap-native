@@ -9,6 +9,13 @@ final class PDFDirectory {
     var url: URL { folder.url }
     var handle: FileHandle { folder.directory }
 
+    var currentURL: URL {
+        if (try? verify()) != nil { return url }
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(handle.fileDescriptor, F_GETPATH, &path) == 0 else { return url }
+        return URL(fileURLWithFileSystemRepresentation: path, isDirectory: true, relativeTo: nil)
+    }
+
     init(_ folder: ScanFolder) throws {
         self.folder = folder
         var info = stat()
@@ -16,7 +23,7 @@ final class PDFDirectory {
         identity = info
     }
 
-    fileprivate func contains(_ child: FileHandle, named name: String) throws -> Bool {
+    func contains(_ child: FileHandle, named name: String) throws -> Bool {
         var held = stat()
         var entry = stat()
         guard fstat(child.fileDescriptor, &held) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
