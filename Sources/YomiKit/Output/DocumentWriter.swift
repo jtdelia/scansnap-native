@@ -23,7 +23,7 @@ public enum DocumentWriter {
 
     /// A file name before its extension. Only `stem`, the part from the name pattern, is ever shortened; the
     /// page, clash and `_original` suffixes Yomi adds are always kept whole.
-    struct FileName: Codable {
+    struct FileName: Codable, Equatable {
         var stem: String
         var suffix = ""
 

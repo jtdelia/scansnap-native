@@ -197,7 +197,8 @@ package struct OCRBatch: Codable {
             let usedRules = Set(evidence.compactMap(\.matchedRule))
             var firstPage = evidence.first
             firstPage?.merchantSeparators = []
-            if var name = document.exportName {
+            if let provisionalName = document.exportName {
+                var name = provisionalName
                 if let pattern, let values = document.patternValues {
                     name = DocumentWriter.baseName(pattern, values: values, multiple: documents.count > 1,
                                                    fields: pages, preferredStem: firstPage?.preferredStem)
@@ -208,8 +209,10 @@ package struct OCRBatch: Codable {
                         firstPage?.merchantSeparators = rendered.components(separatedBy: marker)
                     }
                 }
+                let claim = name == provisionalName ? reservation : nil
+                if claim == nil { reservation.release() }
                 let urls = try DocumentWriter.publishPDF(pdf, sidecars: exportFields == false ? [] : PageFields.sidecars(pages),
-                                                         in: reservation.directory, name: name, reservation: reservation)
+                                                         in: reservation.directory, name: name, reservation: claim)
                 return OCRDocumentOutput(pdf: urls[0], sidecars: Array(urls.dropFirst()), pages: pages, naming: firstPage, usedRules: usedRules)
             }
             try reservation.publish(pdf, pages: document.pages.count)
