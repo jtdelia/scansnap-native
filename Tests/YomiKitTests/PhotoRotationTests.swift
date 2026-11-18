@@ -83,16 +83,19 @@ struct PhotoRotationTests {
     }
 
     /// A print of a handwritten-style note: dark lines of text on cream paper, no faces.
-    private static func notePrint() throws -> CGImage {
+    private static func notePrint(lineCount: Int = 6) throws -> CGImage {
         let context = try #require(CGContext(data: nil, width: 1200, height: 900, bitsPerComponent: 8, bytesPerRow: 0,
                                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        let frame = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        context.setFillColor(CGColor(gray: 0.1, alpha: 1))
+        context.fill(frame)
         context.setFillColor(CGColor(red: 0.95, green: 0.92, blue: 0.85, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: 1200, height: 900))
+        context.fill(frame.insetBy(dx: 30, dy: 30))
         let font = CTFontCreateWithName("Helvetica" as CFString, 56, nil)
         let lines = ["Grandma's birthday party", "at the lake house, June", "with everyone from town",
                      "and the dog, who ate", "most of the cake before", "anyone else had a slice"]
-        for (index, text) in lines.enumerated() {
+        for (index, text) in lines.prefix(lineCount).enumerated() {
             let string = NSAttributedString(string: text, attributes: [
                 NSAttributedString.Key(kCTFontAttributeName as String): font,
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 0.1, alpha: 1),
@@ -107,5 +110,31 @@ struct PhotoRotationTests {
         let upright = try Self.notePrint()
         let image = try await Self.processedPhoto(try Self.oriented(upright, .right))
         #expect(try Self.looksLike(image, upright))
+    }
+
+    @Test func sidewaysFacesTakePriorityOverUprightText() async throws {
+        let note = CIImage(cgImage: try Self.notePrint(lineCount: 2))
+        let faces = CIImage(cgImage: try Self.familyPrint()).oriented(.left)
+            .transformed(by: CGAffineTransform(translationX: 710, y: 100))
+        let print = faces.composited(over: note)
+        let asFed = try #require(CIContext().createCGImage(print, from: note.extent))
+        let image = try await Self.processedPhoto(asFed)
+        #expect(try Self.looksLike(image, Self.oriented(asFed, .right)))
+    }
+
+    @Test(arguments: [CGImagePropertyOrientation.up, .down, .left, .right], [false, true])
+    func shortNoteComesOutUpright(fed: CGImagePropertyOrientation, photo: Bool) async throws {
+        let upright = try Self.notePrint(lineCount: 2)
+        let asFed = try Self.oriented(upright, fed)
+        let image = try await offTheTaskPool {
+            let profile = photo ? ScanProfile.builtInPhotoProfiles[0] : ScanProfile(name: "Document")
+            return try PageProcessor.process(asFed, resolution: 300, side: .front, options: profile.processingOptions).image
+        }
+        #expect(image.width > image.height)
+        let pixels = try Self.thumbnail(image).map(Int.init)
+        let half = pixels.count / 2
+        let top = pixels.prefix(half).reduce(0, +)
+        let bottom = pixels.suffix(half).reduce(0, +)
+        #expect(top < bottom)
     }
 }

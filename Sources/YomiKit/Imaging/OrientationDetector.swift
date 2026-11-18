@@ -4,8 +4,6 @@ import Foundation
 import ImageIO
 import Vision
 
-/// Detects pages fed upside down or sideways by comparing text recognition in each orientation,
-/// and prints fed that way by the roll of the faces in them.
 public enum OrientationDetector {
     private static let context = CIContext()
 
@@ -25,30 +23,20 @@ public enum OrientationDetector {
     }
 
     private static func textOrientation(_ small: CGImage) -> CGImagePropertyOrientation? {
-        let upScore = score(small, .up)
-        let downScore = score(small, .down)
-        var best: (CGImagePropertyOrientation, Double) = (.up, upScore)
-        if downScore > best.1 * 1.5 + 2 { best = (.down, downScore) }
-        if max(upScore, downScore) < 8 {
-            for orientation in [CGImagePropertyOrientation.left, .right] {
-                let value = score(small, orientation)
-                if value > best.1 * 1.5 + 2 { best = (orientation, value) }
-            }
-        }
-        return best.0 == .up ? nil : best.0
-    }
-
-    /// Sum of confidences of recognized lines with at least three characters.
-    private static func score(_ image: CGImage, _ orientation: CGImagePropertyOrientation) -> Double {
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
+        request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
-        let handler = VNImageRequestHandler(cgImage: image, orientation: orientation, options: [:])
-        guard (try? handler.perform([request])) != nil else { return 0 }
-        return (request.results ?? []).reduce(0) { total, observation in
-            guard let candidate = observation.topCandidates(1).first, candidate.string.count >= 3 else { return total }
-            return total + Double(candidate.confidence)
+        let handler = VNImageRequestHandler(cgImage: small, orientation: .up, options: [:])
+        guard (try? handler.perform([request])) != nil else { return nil }
+        var orientations: [CGImagePropertyOrientation?] = []
+        for line in request.results ?? [] {
+            guard let text = line.topCandidates(1).first, text.confidence >= 0.5,
+                  text.string.filter({ $0.isLetter || $0.isNumber }).count >= 3 else { continue }
+            let dx = (line.topRight.x - line.topLeft.x) * CGFloat(small.width)
+            let dy = (line.topRight.y - line.topLeft.y) * CGFloat(small.height)
+            orientations.append(correction(forRoll: atan2(dy, dx)))
         }
+        return agreed(orientations)
     }
 
     /// For each confidently detected face, the orientation that shows it upright, or nil when its
@@ -58,25 +46,26 @@ public enum OrientationDetector {
         let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
         guard (try? handler.perform([request])) != nil else { return [] }
         return (request.results ?? []).filter { $0.confidence >= 0.5 }.map { face in
-            guard let roll = face.roll?.doubleValue else { return nil }
-            let degrees = roll * 180 / .pi
-            let quarter = (degrees / 90).rounded()
-            guard abs(degrees - quarter * 90) <= 30 else { return nil }
-            // A face with a roll of +90° reads upright when the image is shown as `.right`.
-            switch (Int(quarter) % 4 + 4) % 4 {
-            case 0: return .up
-            case 1: return .right
-            case 2: return .down
-            default: return .left
-            }
+            face.roll.flatMap { correction(forRoll: $0.doubleValue) }
         }
     }
 
-    /// The orientation at least two thirds of the faces agree on, unless that is upright.
-    private static func agreed(_ faces: [CGImagePropertyOrientation?]) -> CGImagePropertyOrientation? {
-        let votes = Dictionary(grouping: faces.compactMap(\.self), by: \.self).mapValues(\.count)
+    private static func correction(forRoll roll: Double) -> CGImagePropertyOrientation? {
+        let degrees = roll * 180 / .pi
+        let quarter = (degrees / 90).rounded()
+        guard abs(degrees - quarter * 90) <= 30 else { return nil }
+        switch (Int(quarter) % 4 + 4) % 4 {
+        case 0: return .up
+        case 1: return .right
+        case 2: return .down
+        default: return .left
+        }
+    }
+
+    private static func agreed(_ orientations: [CGImagePropertyOrientation?]) -> CGImagePropertyOrientation? {
+        let votes = Dictionary(grouping: orientations.compactMap(\.self), by: \.self).mapValues(\.count)
         guard let (orientation, count) = votes.max(by: { $0.value < $1.value }),
-              count * 3 >= faces.count * 2, orientation != .up
+              count * 3 >= orientations.count * 2, orientation != .up
         else { return nil }
         return orientation
     }
