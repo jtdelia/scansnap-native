@@ -180,6 +180,22 @@ extension ContentNameTests {
         #expect(history.rules.first?.replacement == "Green Markets")
     }
 
+    @Test(arguments: ["'", "’"])
+    func learnsApostrophesInMerchantNamesAcrossReloads(apostrophe: String) throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let signature = try PageSignature(image: DocumentFixture.order.image, fields: .receipt(.init(merchant: "Trader Joe")))
+        var history = ScanHistory()
+        history.record(try receipt("Trader Joe", signature: signature, pattern: "{merchant}"), profileName: "Receipts")
+        let id = history.batches[0].files[0].id
+        for merchant in ["Trader Joe\(apostrophe)s", "Trader Joseph\(apostrophe)s"] {
+            try history.rename(id, to: merchant, at: location)
+            history = try ScanHistory.load(from: location)
+            let rule = try #require(signature.closest(in: history.rules))
+            #expect(rule.changesMerchant)
+            #expect(rule.replacement == merchant)
+        }
+    }
+
     @Test func unverifiedTrailingTextKeepsTheWholeFilenameCorrection() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let signature = try await Self.receiptSignature.value

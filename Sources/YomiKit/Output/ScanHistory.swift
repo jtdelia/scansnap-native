@@ -111,7 +111,7 @@ package struct RecentFile: Codable, Identifiable {
             guard range == stem.range(of: old, options: .backwards) else { return nil }
             let prefix = stem[..<range.lowerBound], suffix = stem[range.upperBound...]
             let touchesMerchant = suffix.isEmpty && parts[0].isEmpty || prefix.isEmpty && parts[occurrences].isEmpty
-            let extendsWord = (prefix + suffix).allSatisfy { $0.isLetter || $0.isNumber }
+            let extendsWord = (prefix + suffix).allSatisfy { $0.isLetter || $0.isNumber || $0 == "'" || $0 == "’" }
             if occurrences > 1 || !touchesMerchant || !extendsWord {
                 parts[0] = prefix + parts[0]
                 parts[occurrences] += suffix
