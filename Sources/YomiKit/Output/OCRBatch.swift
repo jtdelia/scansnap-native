@@ -195,17 +195,25 @@ package struct OCRBatch: Codable {
             guard let reservation = document.reservation else { throw ImageWriterError.cannotWrite(document.outputURL) }
             let evidence = document.pages.compactMap { fields[$0.file] == nil ? nil : naming[$0.file] }
             let usedRules = Set(evidence.compactMap(\.matchedRule))
+            var firstPage = evidence.first
+            firstPage?.merchantSeparators = []
             if var name = document.exportName {
                 if let pattern, let values = document.patternValues {
                     name = DocumentWriter.baseName(pattern, values: values, multiple: documents.count > 1,
-                                                   fields: pages, preferredStem: evidence.first?.preferredStem)
+                                                   fields: pages, preferredStem: firstPage?.preferredStem)
+                    if firstPage?.signature.merchant != nil, firstPage?.preferredStem == nil, pattern.pieces.contains(.merchant) {
+                        let marker = UUID().uuidString
+                        let separators = FileNamePattern(pattern.pieces.map { $0 == .merchant ? .text(marker) : $0 })
+                        let rendered = DocumentWriter.fileSafe(separators.render(values, fields: pages))
+                        firstPage?.merchantSeparators = rendered.components(separatedBy: marker)
+                    }
                 }
                 let urls = try DocumentWriter.publishPDF(pdf, sidecars: exportFields == false ? [] : PageFields.sidecars(pages),
                                                          in: reservation.directory, name: name, reservation: reservation)
-                return OCRDocumentOutput(pdf: urls[0], sidecars: Array(urls.dropFirst()), pages: pages, naming: evidence.first, usedRules: usedRules)
+                return OCRDocumentOutput(pdf: urls[0], sidecars: Array(urls.dropFirst()), pages: pages, naming: firstPage, usedRules: usedRules)
             }
             try reservation.publish(pdf, pages: document.pages.count)
-            return OCRDocumentOutput(pdf: reservation.output, sidecars: [], pages: pages, naming: evidence.first, usedRules: usedRules)
+            return OCRDocumentOutput(pdf: reservation.output, sidecars: [], pages: pages, naming: firstPage, usedRules: usedRules)
         }
     }
 }

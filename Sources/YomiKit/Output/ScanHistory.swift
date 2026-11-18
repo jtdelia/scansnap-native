@@ -81,18 +81,28 @@ package struct RecentFile: Codable, Identifiable {
     func correction(from old: String, to stem: String, rules: [LearnedName], now: Date) -> LearnedName? {
         guard let signature = naming?.signature else { return nil }
         let id = ruleID.flatMap { id in rules.first { $0.id == id }?.id } ?? signature.closest(in: rules)?.id ?? UUID()
-        if let merchant, let range = old.range(of: DocumentWriter.fileSafe(merchant)) {
-            let prefix = old[..<range.lowerBound], suffix = old[range.upperBound...]
-            if stem.hasPrefix(prefix), stem.hasSuffix(suffix), stem.count > prefix.count + suffix.count {
-                let corrected = String(stem.dropFirst(prefix.count).dropLast(suffix.count))
-                if corrected != merchant {
-                    return LearnedName(id: id, signature: signature, matchedText: signature.merchant ?? merchant,
-                                       replacement: corrected, changesMerchant: true, edited: now, lastUsed: now)
-                }
-            }
+        if let merchant, let corrected = correctedMerchant(merchant, in: old, renamedTo: stem) {
+            return LearnedName(id: id, signature: signature, matchedText: signature.merchant ?? merchant,
+                               replacement: corrected, changesMerchant: true, edited: now, lastUsed: now)
         }
         return LearnedName(id: id, signature: signature, matchedText: old, replacement: stem,
                            changesMerchant: false, edited: now, lastUsed: now)
+    }
+
+    private func correctedMerchant(_ merchant: String, in old: String, renamedTo stem: String) -> String? {
+        let previous = DocumentWriter.fileSafe(merchant)
+        guard !previous.isEmpty else { return nil }
+        let parts = naming?.merchantSeparators ?? old.components(separatedBy: previous)
+        let occurrences = parts.count - 1
+        guard occurrences > 0, naming?.merchantSeparators != nil || occurrences == 1 else { return nil }
+        let rendered = parts.joined(separator: previous)
+        guard old.hasPrefix(rendered) else { return nil }
+        let suffix = old.dropFirst(rendered.count)
+        let length = stem.count - parts.reduce(suffix.count) { $0 + $1.count }
+        guard length > 0, length.isMultiple(of: occurrences) else { return nil }
+        let candidate = String(stem.dropFirst(parts[0].count).prefix(length / occurrences))
+        guard candidate != previous, parts.joined(separator: candidate) + suffix == stem else { return nil }
+        return candidate
     }
 }
 
@@ -131,7 +141,7 @@ package struct ScanHistory: Codable {
 
     package func save(to file: URL = location) throws {
         let folder = file.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let temporary = folder.appendingPathComponent(".Yomi-History-\(UUID())")
         let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
@@ -173,7 +183,7 @@ package struct ScanHistory: Codable {
             if let rule = file.correction(from: old, to: stem, rules: rules, now: .now) {
                 next.remember(rule)
                 next.batches[batch].files[index].ruleID = rule.id
-                if rule.changesMerchant { next.batches[batch].files[index].merchant = rule.replacement }
+                next.batches[batch].files[index].merchant = rule.changesMerchant ? rule.replacement : nil
             }
             try next.save(to: location)
             self = next

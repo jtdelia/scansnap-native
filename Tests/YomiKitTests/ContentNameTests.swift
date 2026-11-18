@@ -20,11 +20,18 @@ struct ContentNameTests {
 }
 
 extension ContentNameTests {
+    private static let receiptSignature = Task {
+        try await offTheTaskPool {
+            try PageSignature(image: DocumentFixture.order.image, fields: .receipt(.init(merchant: "Green Market")))
+        }
+    }
+
     private var location: URL { folder.appendingPathComponent("History.json") }
 
-    private func receipt(_ merchant: String = "Green Market", signature: PageSignature? = nil) throws -> ScanOutcome {
+    private func receipt(_ merchant: String = "Green Market", signature: PageSignature? = nil,
+                         pattern: String = "{merchant} {number}") throws -> ScanOutcome {
         let profile = ScanProfile(name: "Receipts", folderPath: folder.path, exportFields: true,
-                                  namePattern: .init(editorText: "{merchant} {number}"))
+                                  namePattern: .init(editorText: pattern))
         let (batch, staged) = try OCRBatch.stage([DocumentFixture.order], profile: profile, date: .now, learnedNames: [])
         defer { try? FileManager.default.removeItem(at: staged) }
         let key = batch.documents[0].pages[0].file
@@ -99,9 +106,60 @@ extension ContentNameTests {
         #expect(try ScanHistory.load(from: location).rules.isEmpty)
     }
 
-    @Test func latestCorrectionWinsForReceiptsRecordedBeforeEitherWasEdited() throws {
+    @Test(arguments: [
+        ("Green Market - {merchant} {number}", "Green Market - Green Grocer 001", true),
+        ("Green Market - {merchant} {number}", "Green Grocer - Green Market 001", false),
+        ("{merchant} - {merchant} {number}", "Green Grocer - Green Grocer 001", true),
+        ("{merchant} - {merchant} {number}", "Green Grocer - Green Market 001", false),
+        ("Green Market {number}", "Green Grocer 001", false),
+    ])
+    func correctionsFollowTheMerchantTokenAfterReload(pattern: String, proposed: String, merchantOnly: Bool) async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
-        let signature = try PageSignature(image: DocumentFixture.order.image, fields: .receipt(.init(merchant: "Green Market")))
+        let signature = try await Self.receiptSignature.value
+        var history = ScanHistory()
+        history.record(try receipt(signature: signature, pattern: pattern), profileName: "Receipts")
+        try history.save(to: location)
+        history = try ScanHistory.load(from: location)
+        try history.rename(history.batches[0].files[0].id, to: proposed, at: location)
+        let rule = try #require(history.rules.first)
+        #expect(rule.changesMerchant == merchantOnly)
+        #expect(rule.replacement == (merchantOnly ? "Green Grocer" : proposed))
+    }
+
+    @Test func merchantCorrectionKeepsTheClashSuffix() async throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let existing = folder.appendingPathComponent("Green Market - Green Market 001.json")
+        try Data("Existing".utf8).write(to: existing)
+        let signature = try await Self.receiptSignature.value
+        let outcome = try receipt(signature: signature, pattern: "Green Market - {merchant} {number}")
+        #expect(outcome.files.first?.lastPathComponent == "Green Market - Green Market 001 (2).pdf")
+        var history = ScanHistory()
+        history.record(outcome, profileName: "Receipts")
+        try history.rename(history.batches[0].files[0].id, to: "Green Market - Green Grocer 001 (2)", at: location)
+        #expect(history.rules.first?.replacement == "Green Grocer")
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "Existing")
+    }
+
+    @Test(arguments: [false, true])
+    func olderHistoryLearnsAMerchantOnlyWhenItsPositionIsUnambiguous(repeated: Bool) async throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let signature = try await Self.receiptSignature.value
+        var outcome = try receipt(signature: signature, pattern: repeated ? "Green Market - {merchant} {number}" : "{merchant} {number}")
+        outcome.ocrOutputs[0].naming?.merchantSeparators = nil
+        var history = ScanHistory()
+        history.record(outcome, profileName: "Receipts")
+        try history.save(to: location)
+        history = try ScanHistory.load(from: location)
+        let newName = repeated ? "Green Grocer - Green Market 001" : "Green Grocer 001"
+        try history.rename(history.batches[0].files[0].id, to: newName, at: location)
+        #expect(history.rules.first?.changesMerchant == !repeated)
+        #expect(history.rules.first?.replacement == (repeated ? newName : "Green Grocer"))
+    }
+
+    @Test func latestCorrectionWinsForReceiptsRecordedBeforeEitherWasEdited() async throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let signature = try await Self.receiptSignature.value
         var history = ScanHistory()
         history.record(try receipt(signature: signature), profileName: "Receipts")
         let first = history.batches[0].files[0].id
@@ -126,6 +184,7 @@ extension ContentNameTests {
             try #require(FileManager.default.attributesOfItem(atPath: location.path)[.posixPermissions] as? Int)
         }
         try history.save(to: location)
+        #expect(try FileManager.default.attributesOfItem(atPath: folder.path)[.posixPermissions] as? Int == 0o700)
         #expect(try permissions() == 0o600)
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: location.path)
         _ = try ScanHistory.load(from: location)

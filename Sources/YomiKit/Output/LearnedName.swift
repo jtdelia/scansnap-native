@@ -118,4 +118,5 @@ struct PageNaming: Codable, Sendable {
     let signature: PageSignature
     let matchedRule: UUID?
     let preferredStem: String?
+    var merchantSeparators: [String]?
 }
