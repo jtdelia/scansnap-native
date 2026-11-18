@@ -113,6 +113,14 @@ struct PhotoRotationTests {
         #expect(try Self.looksLike(image, upright))
     }
 
+    @Test(arguments: [(CGImagePropertyOrientation.up, CGImagePropertyOrientation.up),
+                      (.down, .down), (.left, .right), (.right, .left)])
+    func fastRecognitionOrientsShortNotes(fed: CGImagePropertyOrientation, expected: CGImagePropertyOrientation) async throws {
+        let asFed = try Self.oriented(try Self.notePrint(lineCount: 2), fed)
+        let correction = try await offTheTaskPool { try OrientationDetector.fastTextOrientation(asFed) }
+        #expect((correction ?? .up) == expected)
+    }
+
     @Test func uprightFacesTakePriorityOverSidewaysText() async throws {
         let note = CIImage(cgImage: try Self.notePrint(lineCount: 2))
         let faces = CIImage(cgImage: try Self.familyPrint()).oriented(.left)
