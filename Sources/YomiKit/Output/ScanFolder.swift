@@ -45,10 +45,9 @@ struct ScanFolder {
             while true {
                 let filename = DocumentWriter.fileName(candidate, format: format)
                 let file = url.appendingPathComponent(filename)
-                if renameatx_np(parent, temporary, parent, filename, UInt32(RENAME_EXCL)) == 0 {
-                    return (candidate, file)
-                }
-                guard errno == EEXIST else { throw FolderError(file, errno) }
+                let code = publishFile(temporary, from: parent, as: filename, in: parent)
+                if code == 0 { return (candidate, file) }
+                guard code == EEXIST else { throw FolderError(file, code) }
                 candidate.suffix = "\(name.suffix) (\(counter))"
                 counter += 1
             }
