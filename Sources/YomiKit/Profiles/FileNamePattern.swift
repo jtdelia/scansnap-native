@@ -14,9 +14,11 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
         case runningNumber
         /// The number, within the batch, of the first page in the file.
         case pageNumber
+        case titleText, merchant, pageDate, pageKind
 
         /// Pieces other than typed text, in the order the editor offers them.
-        public static let all: [Piece] = [.date, .time, .year, .month, .day, .profileName, .runningNumber, .pageNumber]
+        public static let all: [Piece] = [.date, .time, .year, .month, .day, .profileName, .runningNumber, .pageNumber,
+                                          .titleText, .merchant, .pageDate, .pageKind]
 
         /// Pieces a subfolder pattern offers: the same for every file in a batch, so a batch never spreads
         /// across folders.
@@ -33,6 +35,10 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
             case .profileName: "Scan profile name"
             case .runningNumber: "Running number"
             case .pageNumber: "Page number"
+            case .titleText: "Title"
+            case .merchant: "Merchant or company"
+            case .pageDate: "Page date"
+            case .pageKind: "Page kind"
             }
         }
 
@@ -48,6 +54,10 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
             case .profileName: "profile"
             case .runningNumber: "number"
             case .pageNumber: "page"
+            case .titleText: "title"
+            case .merchant: "merchant"
+            case .pageDate: "pageDate"
+            case .pageKind: "kind"
             }
         }
 
@@ -147,7 +157,7 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
     var numbersFiles: Bool { usesRunningNumber || pieces.contains(.pageNumber) }
 
     /// The values that fill a pattern's pieces for one file.
-    struct Values {
+    struct Values: Codable {
         var date: Date
         var profileName: String
         var runningNumber: Int
@@ -155,13 +165,17 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
         var pageNumber: Int
     }
 
-    func render(_ values: Values) -> String {
+    var usesPageFields: Bool {
+        pieces.contains { [.titleText, .merchant, .pageDate, .pageKind].contains($0) }
+    }
+
+    func render(_ values: Values, fields: [PageFields] = []) -> String {
         let formatter = DateFormatter()
         func format(_ dateFormat: String) -> String {
             formatter.dateFormat = dateFormat
             return formatter.string(from: values.date)
         }
-        return pieces.map { piece in
+        func value(_ piece: Piece) -> String? {
             switch piece {
             case let .text(text): text
             case .date: format("yyyy-MM-dd")
@@ -172,7 +186,26 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
             case .profileName: values.profileName
             case .runningNumber: String(format: "%0\(max(1, values.numberDigits))d", values.runningNumber)
             case .pageNumber: String(format: "%03d", values.pageNumber)
+            case .titleText: fields.lazy.compactMap(\.nameTitle).first
+            case .merchant: fields.lazy.compactMap(\.merchant).first
+            case .pageDate: fields.lazy.compactMap(\.pageDate).first
+            case .pageKind: fields.first?.kindName
             }
-        }.joined()
+        }
+        var result = ""
+        var separator = ""
+        var omitted = false
+        for piece in pieces {
+            if case let .text(text) = piece, text.allSatisfy({ $0.isWhitespace || $0.isPunctuation }) {
+                if !omitted { separator += text }
+            } else if let text = value(piece) {
+                result += separator + text
+                separator = ""
+                omitted = false
+            } else {
+                omitted = true
+            }
+        }
+        return result + (omitted ? "" : separator)
     }
 }

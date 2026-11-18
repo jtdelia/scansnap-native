@@ -36,7 +36,7 @@ extension RecognizedPage {
         return nil
     }
 
-    fileprivate func date(_ value: String?) -> String? {
+    func date(_ value: String?) -> String? {
         guard let value else { return nil }
         let japanese = language == .japaneseAndEnglish || (language == .automatic &&
             transcript.range(of: #"[\p{Hiragana}\p{Katakana}\p{Han}¥￥]"#, options: .regularExpression) != nil)

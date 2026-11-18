@@ -53,11 +53,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openFolder.target = self
         menu.addItem(openFolder)
 
+        menu.addItem(recentScansItem())
+
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
         return menu
     }
+
+    private func recentScansItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Recent Scans", action: #selector(showRecentScans), keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    @objc private func showRecentScans() { RecentScansController.shared.show(model: model) }
 
     @objc private func scanNow() { model.scanWithButtonProfile() }
 
@@ -87,6 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "Quit Yomi", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
+
+        let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(recentScansItem())
+        fileItem.submenu = fileMenu
+        main.addItem(fileItem)
 
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")

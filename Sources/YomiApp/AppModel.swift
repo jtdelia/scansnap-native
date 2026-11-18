@@ -26,6 +26,11 @@ final class AppModel {
             applyAppearance()
         }
     }
+    var history = ScanHistory()
+    var finishedBatchID: UUID?
+    var historyError: String?
+    var finishedBatch: RecentBatch? { history.batches.first { $0.id == finishedBatchID } }
+
     var connection: ScannerConnection = .disconnected
     var progress: ScanProgress?
     private var status: BatchStatus
@@ -46,8 +51,7 @@ final class AppModel {
     private var quitting = false
     private var loaded = false
 
-    static let supportFolder = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/Yomi", isDirectory: true)
+    static let supportFolder = ScanHistory.supportFolder
     private static let settingsURL = supportFolder.appendingPathComponent("Settings.json")
 
     var buttonProfile: ScanProfile? {
@@ -56,6 +60,7 @@ final class AppModel {
 
     func start() {
         load()
+        do { history = try ScanHistory.load() } catch { historyError = error.localizedDescription }
         service.photoLibrary = PhotoKitLibrary()
         service.onConnectionChange = { connection in
             Task { @MainActor in self.connection = connection }
@@ -82,6 +87,7 @@ final class AppModel {
             if !connection.isReady { NSSound.beep() }
             return
         }
+        finishedBatchID = nil
         activeProfile = profile
         batchFolder = profile.destination.savesToFolder ? DocumentWriter.folderName(for: profile) : nil
         progress = ScanProgress(phase: "Preparing…", sheets: 0, pages: 0, blankPagesSkipped: 0, thumbnail: nil)
@@ -137,6 +143,11 @@ final class AppModel {
     private func finish(batch: Int, profile: ScanProfile, result: Result<ScanOutcome, Error>) {
         status.finish(batch: batch, profile: profile, result: result)
         if case let .success(outcome) = result {
+            let recent = history.record(outcome, profileName: profile.name)
+            if recent != nil {
+                do { try history.save() } catch { historyError = error.localizedDescription }
+            }
+            if batch == status.latest { finishedBatchID = recent }
             if let folder = outcome.folder, batch >= (lastFolders[profile.id]?.batch ?? 0) {
                 lastFolders[profile.id] = (batch, folder)
                 if batch == status.latest { batchFolder = Self.name(of: folder, in: profile) }
@@ -146,7 +157,7 @@ final class AppModel {
             case .openFile: outcome.files.forEach { NSWorkspace.shared.open($0) }
             case .revealInFinder: NSWorkspace.shared.activateFileViewerSelecting(outcome.files)
             }
-            if case .finished = jobState, batch == status.latest {
+            if case .finished = jobState, batch == status.latest, recent == nil {
                 ProgressPanelController.shared.hide(after: outcome.notice == nil ? 1.6 : 4)
             }
         }
@@ -157,7 +168,7 @@ final class AppModel {
         status.dismissFailure()
         switch jobState {
         case .idle: ProgressPanelController.shared.hide(after: 0)
-        case .finished: ProgressPanelController.shared.hide(after: 1.6)
+        case .finished where finishedBatch == nil: ProgressPanelController.shared.hide(after: 1.6)
         default: break
         }
     }

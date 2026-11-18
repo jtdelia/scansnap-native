@@ -26,33 +26,42 @@ package struct OCRBatch: Codable {
         let exportName: DocumentWriter.FileName?
         package let pages: [Page]
         fileprivate var reservation: PDFReservation?
+        var patternValues: FileNamePattern.Values?
 
-        private enum CodingKeys: CodingKey { case outputURL, exportName, pages }
+        private enum CodingKeys: CodingKey { case outputURL, exportName, pages, patternValues }
     }
 
     package let jpegQuality: Double
     let textRecognitionLanguage: ScanProfile.TextRecognitionLanguage?
     package let documents: [Document]
+    var pattern: FileNamePattern?
+    var exportFields: Bool?
+    var learnedNames: [LearnedName]?
 
     static var helperURL: URL {
         let executable = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
         return executable.deletingLastPathComponent().appendingPathComponent("yomi-ocr")
     }
 
-    static func stage(_ pages: [ProcessedPage], profile: ScanProfile, date: Date) throws -> (Self, URL) {
+    static func stage(_ pages: [ProcessedPage], profile: ScanProfile, date: Date,
+                      learnedNames: [LearnedName] = []) throws -> (Self, URL) {
         let folder = try temporaryFolder()
         let staged = try stageOriginals(pages, in: folder)
         var directory: PDFDirectory?
         do {
             let destination = try PDFDirectory(DocumentWriter.openFolder(for: profile, date: date))
             directory = destination
-            let documents = try DocumentWriter.fileGroups(pages: pages.count, profile: profile, date: date).map { group in
+            let groups = DocumentWriter.fileGroups(pages: pages.count, profile: profile, date: date)
+            let needsName = profile.exportFields || profile.namePattern.usesPageFields || !learnedNames.isEmpty
+            let documents = try groups.enumerated().map { index, group in
                 let reservation = try DocumentWriter.reservePDF(in: destination, group.name)
-                return Document(outputURL: reservation.output, exportName: profile.exportFields ? group.name : nil,
-                                pages: Array(staged[group.range]), reservation: reservation)
+                let values = FileNamePattern.Values(date: date, profileName: profile.name, runningNumber: profile.nextNumber + index,
+                                                    numberDigits: profile.numberDigits, pageNumber: group.range.lowerBound + 1)
+                return Document(outputURL: reservation.output, exportName: needsName ? group.name : nil,
+                                pages: Array(staged[group.range]), reservation: reservation, patternValues: values)
             }
             let batch = OCRBatch(jpegQuality: profile.compression.jpegQuality, textRecognitionLanguage: profile.textRecognitionLanguage,
-                                 documents: documents)
+                                 documents: documents, pattern: profile.namePattern, exportFields: profile.exportFields, learnedNames: learnedNames)
             try JSONEncoder().encode(batch).write(to: folder.appendingPathComponent("manifest.json"))
             return (batch, folder)
         } catch {
@@ -107,9 +116,11 @@ package struct OCRBatch: Codable {
         try await readFields(in: folder, recognizedPages: recognizedPages, worker: FieldWorker(executable: Self.helperURL))
     }
 
-    func readFields(in folder: URL, recognizedPages: [String: RecognizedPage], worker: FieldWorker,
-                    examples: String = "") async throws -> [String: PageFields] {
+    func readFields(in folder: URL, recognizedPages: [String: RecognizedPage], worker: FieldWorker) async throws -> [String: PageFields] {
         var fields: [String: PageFields] = [:]
+        let rules = learnedNames ?? []
+        let examples = LearnedName.examples(rules)
+        var naming: [String: PageNaming] = [:]
         var available = true
         for page in documents.flatMap(\.pages) {
             guard let recognized = recognizedPages[page.file] else { continue }
@@ -123,8 +134,17 @@ package struct OCRBatch: Codable {
                     available = false
                 }
             }
-            fields[page.file] = PageFields.verified(proposed, in: recognized)
+            var extracted = PageFields.verified(proposed, in: recognized)
+            if !recognized.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || recognized.kind == .print,
+               let image = try? page.image(in: folder), let signature = try? PageSignature(image: image, fields: extracted) {
+                let rule = signature.closest(in: rules)
+                if let rule, rule.changesMerchant { extracted.correctMerchant(rule.replacement) }
+                naming[page.file] = PageNaming(signature: signature, matchedRule: rule?.id,
+                                               preferredStem: rule?.changesMerchant == false ? rule?.replacement : nil)
+            }
+            fields[page.file] = extracted
         }
+        writeMetadata(naming, to: folder.appendingPathComponent("naming.json"))
         return fields
     }
 
@@ -143,11 +163,12 @@ package struct OCRBatch: Codable {
                 return (image, page.resolution)
             }
         }
-        do {
-            try JSONEncoder().encode(fields).write(to: folder.appendingPathComponent("fields.json"), options: .atomic)
-        } catch {
-            ScanLog.write("  Could not save fields.json for \(folder.path): \(error.localizedDescription).")
-        }
+        writeMetadata(fields, to: folder.appendingPathComponent("fields.json"))
+    }
+
+    private func writeMetadata(_ value: some Encodable, to url: URL) {
+        do { try JSONEncoder().encode(value).write(to: url, options: .atomic) }
+        catch { ScanLog.write("  Could not save \(url.path): \(error.localizedDescription).") }
     }
 
     fileprivate func validatePDFs(in folder: URL) throws {
@@ -166,17 +187,25 @@ package struct OCRBatch: Codable {
         if includeFields {
             fields = (try? JSONDecoder().decode([String: PageFields].self, from: Data(contentsOf: file))) ?? [:]
         }
+        let namingFile = folder.appendingPathComponent("naming.json")
+        let naming = fields.isEmpty ? [:] : (try? JSONDecoder().decode([String: PageNaming].self, from: Data(contentsOf: namingFile))) ?? [:]
         return try documents.enumerated().map { index, document in
             let pdf = resultURL(in: folder, index: index)
             let pages = document.pages.compactMap { fields[$0.file] }
             guard let reservation = document.reservation else { throw ImageWriterError.cannotWrite(document.outputURL) }
-            if let name = document.exportName {
-                let urls = try DocumentWriter.publishPDF(pdf, sidecars: PageFields.sidecars(pages),
+            let evidence = document.pages.compactMap { fields[$0.file] == nil ? nil : naming[$0.file] }
+            let usedRules = Set(evidence.compactMap(\.matchedRule))
+            if var name = document.exportName {
+                if let pattern, let values = document.patternValues {
+                    name = DocumentWriter.baseName(pattern, values: values, multiple: documents.count > 1,
+                                                   fields: pages, preferredStem: evidence.first?.preferredStem)
+                }
+                let urls = try DocumentWriter.publishPDF(pdf, sidecars: exportFields == false ? [] : PageFields.sidecars(pages),
                                                          in: reservation.directory, name: name, reservation: reservation)
-                return OCRDocumentOutput(pdf: urls[0], sidecars: Array(urls.dropFirst()), pages: pages)
+                return OCRDocumentOutput(pdf: urls[0], sidecars: Array(urls.dropFirst()), pages: pages, naming: evidence.first, usedRules: usedRules)
             }
             try reservation.publish(pdf, pages: document.pages.count)
-            return OCRDocumentOutput(pdf: reservation.output, sidecars: [], pages: pages)
+            return OCRDocumentOutput(pdf: reservation.output, sidecars: [], pages: pages, naming: evidence.first, usedRules: usedRules)
         }
     }
 }
