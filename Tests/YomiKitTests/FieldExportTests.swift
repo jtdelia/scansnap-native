@@ -21,6 +21,26 @@ struct FieldExportTests {
     }
 
     @Test(arguments: [false, true])
+    func completesThePDFWhenTheFieldManifestCannotBeWritten(helperFailed: Bool) throws {
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: folder) }
+        let profile = ScanProfile(name: "Receipt", folderPath: folder.path, exportFields: true, namePattern: [.profileName])
+        let (batch, staged) = try OCRBatch.stage([DocumentFixture.blank], profile: profile, date: .now)
+        defer { try? fm.removeItem(at: staged) }
+        try fm.createDirectory(at: staged.appendingPathComponent("fields.json"), withIntermediateDirectories: false)
+        let merchant = "Sample Market"
+        if !helperFailed {
+            try batch.writePDFs(in: staged, fields: ["page-1.png": .receipt(.init(merchant: merchant))])
+        }
+        let helper = helperFailed ? staged.appendingPathComponent("missing-helper") : URL(filePath: "/usr/bin/true")
+        let output = try #require(OCRJob(batch: batch, folder: staged, helper: helper).wait().first)
+        let pdf = try #require(PDFDocument(url: output.pdf))
+        #expect(pdf.pageCount == 1)
+        #expect(pdf.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String == (helperFailed ? nil : merchant))
+        #expect(output.sidecars.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
     func publishesMetadataAndOnlyEnabledSidecars(export: Bool) throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let profile = ScanProfile(name: "Receipt", folderPath: folder.path, exportFields: export, namePattern: [.profileName])

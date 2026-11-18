@@ -143,7 +143,11 @@ package struct OCRBatch: Codable {
                 return (image, page.resolution)
             }
         }
-        try JSONEncoder().encode(fields).write(to: folder.appendingPathComponent("fields.json"), options: .atomic)
+        do {
+            try JSONEncoder().encode(fields).write(to: folder.appendingPathComponent("fields.json"), options: .atomic)
+        } catch {
+            ScanLog.write("  Could not save fields.json for \(folder.path): \(error.localizedDescription).")
+        }
     }
 
     fileprivate func validatePDFs(in folder: URL) throws {
@@ -154,11 +158,14 @@ package struct OCRBatch: Codable {
     }
 
     @discardableResult
-    func publish(in folder: URL) throws -> [OCRDocumentOutput] {
+    func publish(in folder: URL, includeFields: Bool = true) throws -> [OCRDocumentOutput] {
         defer { documents.forEach { $0.reservation?.release() } }
         try validatePDFs(in: folder)
         let file = folder.appendingPathComponent("fields.json")
-        let fields = (try? JSONDecoder().decode([String: PageFields].self, from: Data(contentsOf: file))) ?? [:]
+        var fields: [String: PageFields] = [:]
+        if includeFields {
+            fields = (try? JSONDecoder().decode([String: PageFields].self, from: Data(contentsOf: file))) ?? [:]
+        }
         return try documents.enumerated().map { index, document in
             let pdf = resultURL(in: folder, index: index)
             let pages = document.pages.compactMap { fields[$0.file] }
@@ -223,7 +230,7 @@ final class OCRJob: @unchecked Sendable {
                 ScanLog.write("  yomi-ocr \(fallbackReason). Saving image-only PDFs.")
                 try batch.writePDFs(in: folder)
             }
-            outputs = .success(try batch.publish(in: folder))
+            outputs = .success(try batch.publish(in: folder, includeFields: fallbackReason == nil))
             try? FileManager.default.removeItem(at: folder)
         } catch {
             let count = batch.documents.reduce(0) { $0 + $1.pages.count }
