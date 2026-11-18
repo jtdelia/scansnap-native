@@ -99,6 +99,55 @@ extension ContentNameTests {
         #expect(try ScanHistory.load(from: location).rules.isEmpty)
     }
 
+    @Test func latestCorrectionWinsForReceiptsRecordedBeforeEitherWasEdited() throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let signature = try PageSignature(image: DocumentFixture.order.image, fields: .receipt(.init(merchant: "Green Market")))
+        var history = ScanHistory()
+        history.record(try receipt(signature: signature), profileName: "Receipts")
+        let first = history.batches[0].files[0].id
+        history.record(try receipt(signature: signature), profileName: "Receipts")
+        let second = history.batches[0].files[0].id
+        try history.rename(first, to: "First correction", at: location)
+        history = try ScanHistory.load(from: location)
+        let firstRule = try #require(history.rules.first)
+        try history.rename(second, to: "Latest correction", at: location)
+        let saved = try ScanHistory.load(from: location)
+        #expect(saved.rules.map(\.id) == [firstRule.id])
+        #expect(signature.closest(in: saved.rules)?.replacement == "Latest correction")
+        let latest = try #require(saved.rules.last)
+        #expect(signature.closest(in: [firstRule, latest])?.replacement == "Latest correction")
+        #expect(signature.closest(in: [latest, firstRule])?.replacement == "Latest correction")
+    }
+
+    @Test func scanHistoryIsPrivateOnSaveAndWhenReopeningAnOlderFile() throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let history = ScanHistory()
+        func permissions() throws -> Int {
+            try #require(FileManager.default.attributesOfItem(atPath: location.path)[.posixPermissions] as? Int)
+        }
+        try history.save(to: location)
+        #expect(try permissions() == 0o600)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: location.path)
+        _ = try ScanHistory.load(from: location)
+        #expect(try permissions() == 0o600)
+        try history.save(to: location)
+        #expect(try permissions() == 0o600)
+    }
+
+    @Test(arguments: [
+        ("{title} ({kind})", "(Receipt)"),
+        ("{kind} ({title})", "Receipt"),
+        ("{kind} ({title}) - {number}", "Receipt - 001"),
+        ("{title} - [{kind}]", "[Receipt]"),
+        ("{kind} [{number}]", "Receipt [001]"),
+        ("{kind} ([{title} - {number}])", "Receipt ([001])"),
+        ("{kind} ({title} - {pageDate})", "Receipt"),
+    ])
+    func omittedFieldsKeepDelimitersAroundPresentFields(pattern: String, expected: String) {
+        let values = FileNamePattern.Values(date: .now, profileName: "Receipts", runningNumber: 1, numberDigits: 3, pageNumber: 1)
+        #expect(FileNamePattern(editorText: pattern).render(values, fields: [.receipt(.init())]) == expected)
+    }
+
     @Test func retainsFifteenDiskBatchesAndEvictsLeastRecentlyUsedRule() throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         var history = ScanHistory()

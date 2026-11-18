@@ -78,19 +78,20 @@ package struct RecentFile: Codable, Identifiable {
         }
     }
 
-    func correction(from old: String, to stem: String, now: Date) -> LearnedName? {
+    func correction(from old: String, to stem: String, rules: [LearnedName], now: Date) -> LearnedName? {
         guard let signature = naming?.signature else { return nil }
+        let id = ruleID.flatMap { id in rules.first { $0.id == id }?.id } ?? signature.closest(in: rules)?.id ?? UUID()
         if let merchant, let range = old.range(of: DocumentWriter.fileSafe(merchant)) {
             let prefix = old[..<range.lowerBound], suffix = old[range.upperBound...]
             if stem.hasPrefix(prefix), stem.hasSuffix(suffix), stem.count > prefix.count + suffix.count {
                 let corrected = String(stem.dropFirst(prefix.count).dropLast(suffix.count))
                 if corrected != merchant {
-                    return LearnedName(id: ruleID ?? UUID(), signature: signature, matchedText: signature.merchant ?? merchant,
+                    return LearnedName(id: id, signature: signature, matchedText: signature.merchant ?? merchant,
                                        replacement: corrected, changesMerchant: true, edited: now, lastUsed: now)
                 }
             }
         }
-        return LearnedName(id: ruleID ?? UUID(), signature: signature, matchedText: old, replacement: stem,
+        return LearnedName(id: id, signature: signature, matchedText: old, replacement: stem,
                            changesMerchant: false, edited: now, lastUsed: now)
     }
 }
@@ -113,15 +114,36 @@ package struct ScanHistory: Codable {
     package init() {}
 
     package static func load(from file: URL = location) throws -> Self {
-        do { return try JSONDecoder().decode(Self.self, from: Data(contentsOf: file)) }
+        do {
+            let handle = try FileHandle(forReadingFrom: file)
+            defer { try? handle.close() }
+            var attributes = stat()
+            let fd = handle.fileDescriptor
+            guard fstat(fd, &attributes) == 0, attributes.st_mode & 0o777 == 0o600 || fchmod(fd, 0o600) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            return try JSONDecoder().decode(Self.self, from: handle.readToEnd() ?? Data())
+        }
         catch CocoaError.fileReadNoSuchFile { return Self() }
     }
 
     static func savedRules() -> [LearnedName] { (try? load().rules) ?? [] }
 
     package func save(to file: URL = location) throws {
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(self).write(to: file, options: .atomic)
+        let folder = file.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let temporary = folder.appendingPathComponent(".Yomi-History-\(UUID())")
+        let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        do {
+            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+            try handle.write(contentsOf: JSONEncoder().encode(self))
+            try handle.close()
+            guard Darwin.rename(temporary.path, file.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
     }
 
     @discardableResult
@@ -148,7 +170,7 @@ package struct ScanHistory: Codable {
         try file.move(to: stem) { urls in
             var next = self
             next.batches[batch].files[index].urls = urls
-            if let rule = file.correction(from: old, to: stem, now: .now) {
+            if let rule = file.correction(from: old, to: stem, rules: rules, now: .now) {
                 next.remember(rule)
                 next.batches[batch].files[index].ruleID = rule.id
                 if rule.changesMerchant { next.batches[batch].files[index].merchant = rule.replacement }

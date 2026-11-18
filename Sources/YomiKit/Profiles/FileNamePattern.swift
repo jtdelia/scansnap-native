@@ -192,20 +192,61 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
             case .pageKind: fields.first?.kindName
             }
         }
+        let rendered = pieces.map(value)
+        guard rendered.contains(nil) else { return rendered.compactMap { $0 }.joined() }
+        let pairs: [Character: Character] = ["(": ")", "[": "]", "{": "}"]
+        var groups: [(open: Character, close: Character, outer: RenderedName)] = []
+        var name = RenderedName()
+        for (piece, text) in zip(pieces, rendered) {
+            guard case let .text(literal) = piece else {
+                name.append(text)
+                continue
+            }
+            var start = literal.startIndex
+            for index in literal.indices {
+                let character = literal[index]
+                if let close = pairs[character] {
+                    name.appendLiteral(literal[start..<index])
+                    groups.append((character, close, name))
+                    name = RenderedName()
+                } else if character == groups.last?.close, let group = groups.popLast() {
+                    name.appendLiteral(literal[start..<index])
+                    let contents = name.text
+                    let empty = contents.isEmpty && name.omitted
+                    name = group.outer
+                    name.append(empty ? nil : "\(group.open)\(contents)\(character)")
+                } else { continue }
+                start = literal.index(after: index)
+            }
+            name.appendLiteral(literal[start...])
+        }
+        while let group = groups.popLast() {
+            let contents = name.text
+            name = group.outer
+            name.append("\(group.open)\(contents)")
+        }
+        return name.text
+    }
+
+    private struct RenderedName {
         var result = ""
         var separator = ""
         var omitted = false
-        for piece in pieces {
-            if case let .text(text) = piece, text.allSatisfy({ $0.isWhitespace || $0.isPunctuation }) {
-                if !omitted { separator += text }
-            } else if let text = value(piece) {
-                result += separator + text
-                separator = ""
-                omitted = false
-            } else {
-                omitted = true
-            }
+
+        var text: String { result + (omitted ? "" : separator) }
+
+        mutating func append(_ value: String?) {
+            guard let value else { omitted = true; return }
+            result += separator + value
+            separator = ""
+            omitted = false
         }
-        return result + (omitted ? "" : separator)
+
+        mutating func appendLiteral(_ literal: Substring) {
+            guard !literal.isEmpty else { return }
+            if !literal.allSatisfy({ $0.isWhitespace || $0.isPunctuation }) { append(String(literal)) }
+            else if !omitted { separator += literal }
+            else if !result.isEmpty, separator.allSatisfy(\.isWhitespace) { separator = String(literal) }
+        }
     }
 }

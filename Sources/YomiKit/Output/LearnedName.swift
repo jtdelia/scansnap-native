@@ -86,7 +86,9 @@ struct PageSignature: Codable, Sendable {
         for rule in rules where rule.signature.kind == kind && rule.signature.merchantKey == merchantKey {
             guard let other = rule.signature.observation else { continue }
             var distance: Float = 0
-            guard (try? observation.computeDistance(&distance, to: other)) != nil, distance < bestDistance else { continue }
+            guard (try? observation.computeDistance(&distance, to: other)) != nil else { continue }
+            let newerTie = distance == bestDistance && closest.map { rule.edited > $0.edited } == true
+            guard distance < bestDistance || newerTie else { continue }
             closest = rule
             bestDistance = distance
         }
