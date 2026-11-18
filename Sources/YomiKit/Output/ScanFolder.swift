@@ -31,27 +31,30 @@ struct ScanFolder {
 
     func write(_ name: DocumentWriter.FileName, format: ScanProfile.FileFormat,
                _ body: (FileHandle, URL) throws -> Void) throws -> (name: DocumentWriter.FileName, url: URL) {
-        var candidate = name
-        var counter = 2
-        while true {
-            let filename = DocumentWriter.fileName(candidate, format: format)
-            let file = url.appendingPathComponent(filename)
-            let fd = openat(directory.fileDescriptor, filename, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666)
-            if fd < 0 {
+        let temporary = ".Yomi-\(UUID()).tmp"
+        let parent = directory.fileDescriptor
+        let requested = url.appendingPathComponent(DocumentWriter.fileName(name, format: format))
+        let fd = openat(parent, temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666)
+        guard fd >= 0 else { throw FolderError(requested, errno) }
+        do {
+            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+            try body(handle, requested)
+            try handle.close()
+            var candidate = name
+            var counter = 2
+            while true {
+                let filename = DocumentWriter.fileName(candidate, format: format)
+                let file = url.appendingPathComponent(filename)
+                if renameatx_np(parent, temporary, parent, filename, UInt32(RENAME_EXCL)) == 0 {
+                    return (candidate, file)
+                }
                 guard errno == EEXIST else { throw FolderError(file, errno) }
                 candidate.suffix = "\(name.suffix) (\(counter))"
                 counter += 1
-                continue
             }
-            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-            do {
-                try body(handle, file)
-                try handle.close()
-                return (candidate, file)
-            } catch {
-                remove(file)
-                throw error
-            }
+        } catch {
+            unlinkat(parent, temporary, 0)
+            throw error
         }
     }
 
