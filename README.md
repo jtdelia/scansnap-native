@@ -53,6 +53,14 @@ The app lives in the menu bar. Pressing the scanner's button scans with the sele
 profile; the Settings window manages profiles (resolution, color mode, page size, blank
 page removal, output folder).
 
+In Recent Scans, renaming a scan gives its PDF and sidecars the same stem. If any
+name is taken, Yomi tries the next suffix for the whole group. On APFS, each new
+name appears with the complete file. On exFAT, other apps can see the new files
+while Yomi copies them. A failed copy can leave an empty or incomplete file at the
+path in the error message. Yomi keeps the originals until the copies are complete
+and the new names are saved in history. An interruption can leave both sets of names.
+If a file changes during cleanup, check the paths in the error message before retrying.
+
 The `yomi` command-line tool drives the same code without the app:
 
 ```sh

@@ -9,6 +9,16 @@ struct SavedFileIdentity: Codable, Equatable {
     init(_ url: URL) throws {
         var attributes = stat()
         guard lstat(url.path, &attributes) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        try self.init(attributes)
+    }
+
+    init(descriptor: Int32) throws {
+        var attributes = stat()
+        guard fstat(descriptor, &attributes) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        try self.init(attributes)
+    }
+
+    init(_ attributes: stat) throws {
         guard attributes.st_mode & S_IFMT == S_IFREG else { throw CocoaError(.fileReadUnsupportedScheme) }
         device = attributes.st_dev
         inode = attributes.st_ino
@@ -20,7 +30,7 @@ struct SavedFileIdentity: Codable, Equatable {
 package struct RecentFile: Codable, Identifiable {
     package let id: UUID
     var urls: [URL]
-    let identities: [SavedFileIdentity?]
+    var identities: [SavedFileIdentity?]
     var naming: PageNaming?
     var merchant: String?
     var ruleID: UUID?
@@ -34,48 +44,6 @@ package struct RecentFile: Codable, Identifiable {
         naming = output?.naming
         merchant = naming?.signature.merchant == nil ? nil : output?.pages.lazy.compactMap(\.merchant).first
         ruleID = naming?.matchedRule
-    }
-
-    func move(to stem: String, commit: ([URL]) throws -> Void) throws {
-        let folder = url.deletingLastPathComponent()
-        var moved: [(from: URL, to: URL, identity: SavedFileIdentity)] = []
-        _ = try DocumentWriter.availableName(.init(stem: stem)) { candidate in
-            let names = DocumentWriter.destinations(in: folder, name: candidate, extensions: urls.map(\.pathExtension))
-            do {
-                for (index, pair) in zip(urls, names).enumerated() {
-                    let (from, to) = pair
-                    guard let identity = identities[index], try SavedFileIdentity(from) == identity else {
-                        throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "The saved file at \(from.path) has changed."])
-                    }
-                    if from == to { continue }
-                    try Self.moveExclusively(from, to)
-                    moved.append((from, to, identity))
-                }
-                try commit(names)
-                return true
-            } catch {
-                var unrestored: [String] = []
-                for file in moved.reversed() {
-                    do {
-                        guard try SavedFileIdentity(file.to) == file.identity else { throw CocoaError(.fileReadUnknown) }
-                        try Self.moveExclusively(file.to, file.from)
-                    } catch { unrestored.append(file.to.path) }
-                }
-                guard unrestored.isEmpty else {
-                    throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey:
-                        "The rename stopped. Check these paths before trying again: \(unrestored.joined(separator: ", "))."])
-                }
-                moved.removeAll()
-                if (error as? POSIXError)?.code == .EEXIST { return false }
-                throw error
-            }
-        }
-    }
-
-    private static func moveExclusively(_ from: URL, _ to: URL) throws {
-        guard renamex_np(from.path, to.path, UInt32(RENAME_EXCL)) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
     }
 
     mutating func correction(from old: String, to stem: String, rules: [LearnedName], now: Date) -> LearnedName? {
@@ -197,9 +165,10 @@ package struct ScanHistory: Codable {
         guard !["", ".", ".."].contains(stem), !stem.utf8.contains(0) else { throw CocoaError(.fileWriteInvalidFileName) }
         let old = file.url.deletingPathExtension().lastPathComponent
         guard stem != old else { return }
-        try file.move(to: stem) { urls in
+        try file.move(to: stem) { urls, identities in
             var next = self
             next.batches[batch].files[index].urls = urls
+            next.batches[batch].files[index].identities = identities
             if let rule = next.batches[batch].files[index].correction(from: old, to: stem, rules: rules, now: .now) {
                 next.remember(rule)
             }
