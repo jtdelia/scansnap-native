@@ -36,6 +36,8 @@ enum DocumentFixture {
             draw("請求書", 100, 550)
             draw("Delivery receipt", 100, 450)
             draw("2026年11月18日", 100, 350)
+            draw("大", 700, 590)
+            draw("阪", 700, 547)
             for (index, character) in "東京支店".enumerated() {
                 draw(String(character), 820, 555 - index * 53)
             }
@@ -148,8 +150,9 @@ struct DocumentRecognitionTests {
         #expect(column.height > 3 * column.width)
         #expect(column.contains(CGPoint(x: 422, y: 286)))
         #expect(column.contains(CGPoint(x: 422, y: 209)))
-        for (y, character) in [(286, "東"), (209, "店")] {
-            let area = CGRect(x: 417, y: y - 5, width: 10, height: 10)
+        #expect(!document.findString("大阪", withOptions: []).isEmpty)
+        for (x, y, character) in [(422, 286, "東"), (422, 209, "店"), (361, 302, "大"), (361, 281, "阪")] {
+            let area = CGRect(x: x - 5, y: y - 5, width: 10, height: 10)
             #expect(page.selection(for: area)?.string == character)
         }
     }
@@ -163,6 +166,8 @@ struct DocumentRecognitionTests {
             PDFTextLayer.RecognizedLine(text: "請求書", box: CGRect(x: 0.10, y: 0.78, width: 0.14, height: 0.065)),
             PDFTextLayer.RecognizedLine(text: "Delivery receipt", box: CGRect(x: 0.10, y: 0.62, width: 0.39, height: 0.082)),
             PDFTextLayer.RecognizedLine(text: "東京支店", box: CGRect(x: 0.82, y: 0.557, width: 0.046, height: 0.291)),
+            PDFTextLayer.RecognizedLine(text: "大阪", box: CGRect(x: 0.70, y: 542.0 / 700, width: 0.046, height: 86.0 / 700),
+                                        direction: .topToBottom),
         ]
         let context = try #require(CGContext(file as CFURL, mediaBox: nil, nil))
         try PDFWriter.write(pages: 1, in: context, jpegQuality: 0.75, textLayer: { _, box, context in

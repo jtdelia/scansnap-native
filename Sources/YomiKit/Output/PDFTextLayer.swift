@@ -10,7 +10,9 @@ enum PDFTextLayer {
 
     static func draw(_ page: RecognizedPage, in box: CGRect, context: CGContext) {
         for document in page.documents {
-            let lines = document.text.lines.map { RecognizedLine(text: $0.transcript, box: $0.boundingBox.cgRect) }
+            let lines = document.text.lines.map { line in
+                RecognizedLine(text: line.transcript, box: line.boundingBox.cgRect, direction: line.textDirection)
+            }
             drawInvisibleText(lines, in: box, context: context)
         }
     }
@@ -18,6 +20,7 @@ enum PDFTextLayer {
     struct RecognizedLine {
         let text: String
         let box: CGRect
+        var direction: RecognizedTextObservation.Direction?
     }
 
     private struct RecognitionFailure: Error, CustomStringConvertible {
@@ -51,7 +54,7 @@ enum PDFTextLayer {
                               y: page.minY + line.box.minY * page.height,
                               width: line.box.width * page.width,
                               height: line.box.height * page.height)
-            let vertical = rect.height > 2 * rect.width
+            let vertical = line.direction.map { $0 == .topToBottom } ?? (rect.height > 2 * rect.width)
             let length = vertical ? rect.height : rect.width
             let thickness = vertical ? rect.width : rect.height
             let font = CTFontCreateWithName("Helvetica" as CFString, max(thickness * 0.85, 1), nil)
