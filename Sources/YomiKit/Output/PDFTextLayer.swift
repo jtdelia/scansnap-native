@@ -11,7 +11,11 @@ enum PDFTextLayer {
     static func draw(_ page: RecognizedPage, in box: CGRect, context: CGContext) {
         for document in page.documents {
             let lines = document.text.lines.map { line in
-                RecognizedLine(text: line.transcript, box: line.boundingBox.cgRect, direction: line.textDirection)
+                let start = line.topLeft.cgPoint
+                let end = line.topRight.cgPoint
+                let runsDown = (start.y - end.y) * box.height > abs(end.x - start.x) * box.width
+                return RecognizedLine(text: line.transcript, box: line.boundingBox.cgRect,
+                                      direction: runsDown ? .topToBottom : line.textDirection)
             }
             drawInvisibleText(lines, in: box, context: context)
         }
