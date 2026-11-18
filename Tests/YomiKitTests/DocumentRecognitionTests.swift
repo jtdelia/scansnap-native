@@ -6,16 +6,6 @@ import Vision
 @testable import YomiKit
 
 enum DocumentFixture {
-    static let recognitionAvailable = Task<Bool, Never> {
-        do {
-            _ = try await RecognizeDocumentsRequest().perform(on: order.image)
-            return true
-        } catch {
-            print("Vision document recognition probe failed: \(error)")
-            return false
-        }
-    }
-
     static var order: ProcessedPage {
         render(font: "Helvetica", size: 36) { context, draw in
             draw("Order confirmation", 110, 580)
@@ -68,41 +58,45 @@ enum DocumentFixture {
 struct DocumentRecognitionTests {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("YomiDocumentTests-\(UUID())")
 
-    private var helper: URL {
-        Bundle(for: TestBundle.self).bundleURL.deletingLastPathComponent().appendingPathComponent("yomi-ocr")
-    }
-
-    private final class TestBundle: NSObject {}
-
-    @Test(.enabled("Vision document recognition is unavailable") { await DocumentFixture.recognitionAvailable.value })
-    func splitPDFsFindTextAtItsPrintedPosition() async throws {
+    @Test func splitPDFsFindTextAtItsPrintedPosition() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let profile = ScanProfile(name: "Invoices", folderPath: folder.path, textRecognitionLanguage: .japaneseAndEnglish,
                                   pagesPerFile: 1, namePattern: [.profileName])
+        let pages = [DocumentFixture.order, DocumentFixture.japanese, DocumentFixture.blank]
+        let helper = try OCRTestHelper(in: folder)
         let files = try await offTheTaskPool {
-            let (saved, pending) = try BatchSaver.start([DocumentFixture.order, DocumentFixture.japanese, DocumentFixture.blank], profile: profile,
-                                                       photoLibrary: nil, helper: helper)
+            let (saved, pending) = try BatchSaver.start(pages, profile: profile, photoLibrary: nil, helper: helper.script)
             try #require(pending).wait()
             return saved.files
         }
-        #expect(files.map(\.lastPathComponent) == ["Invoices_001.pdf", "Invoices_002.pdf", "Invoices_003.pdf"])
-        let english = try #require(PDFDocument(url: files[0]))
-        let japanese = try #require(PDFDocument(url: files[1]))
-        let blank = try #require(PDFDocument(url: files[2]))
-        #expect(blank.pageCount == 1)
-        #expect((blank.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        try expectSelection("Order confirmation", in: english, within: CGRect(x: 48, y: 280, width: 200, height: 40))
-        try expectJapaneseSelections(in: japanese)
+        try #require(files.map(\.lastPathComponent) == ["Invoices_001.pdf", "Invoices_002.pdf", "Invoices_003.pdf"])
+        let recognized = try helper.output().recognized()
+        let documents = try files.map { try #require(PDFDocument(url: $0)) }
+        for (index, document) in documents.enumerated() {
+            try #require(document.pageCount == 1)
+            try expectJPEGRaster(pages[index], quality: profile.compression.jpegQuality, in: files[index])
+            if !recognized || index == 2 {
+                #expect((document.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        if recognized {
+            try expectSelection("Order confirmation", in: documents[0], within: CGRect(x: 48, y: 280, width: 200, height: 40))
+            try expectJapaneseSelections(in: documents[1])
+        }
     }
 
-    @Test(.enabled("Vision document recognition is unavailable") { await DocumentFixture.recognitionAvailable.value })
-    func pageResultsKeepParagraphsTablesAndDetectedDatesWithTheirPage() async throws {
+    @Test func pageResultsKeepParagraphsTablesAndDetectedDatesWithTheirPage() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let profile = ScanProfile(name: "Invoices", folderPath: folder.path, textRecognitionLanguage: .japaneseAndEnglish,
                                   pagesPerFile: 1)
         let (batch, staged) = try OCRBatch.stage([DocumentFixture.order, DocumentFixture.japanese], profile: profile, date: Date())
         defer { try? FileManager.default.removeItem(at: staged) }
-        let results = try await batch.recognizePages(in: staged)
+        let results: [String: RecognizedPage]
+        do {
+            results = try await batch.recognizePages(in: staged)
+        } catch where isVisionComputeFailure(String(describing: error)) {
+            try reportVisionUnavailable("Vision could not recognize the staged pages: \(error)")
+        }
         let order = try #require(results[batch.documents[0].pages[0].file])
         let table = try #require(order.documents.flatMap(\.tables).first)
         #expect(table.cell(row: 1, col: 0)?.content.text.transcript == "Pencils")
@@ -115,22 +109,59 @@ struct DocumentRecognitionTests {
         #expect(dates.contains("2026年11月18日"))
     }
 
-    @Test func unreadablePageFailsRecognitionAndTheHelper() async throws {
+    @Test(arguments: [false, true])
+    func validBlankPageSucceedsWithEmptyText(inHelper: Bool) async throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let profile = ScanProfile(name: "Invoices", folderPath: folder.path)
+        let page = DocumentFixture.blank
+        let (batch, staged) = try OCRBatch.stage([page], profile: profile, date: Date())
+        defer { try? FileManager.default.removeItem(at: staged) }
+        if inHelper {
+            let output = try await offTheTaskPool { try OCRTestHelper(in: folder).run(on: staged) }
+            if output.visionUnavailable { try reportVisionUnavailable("Blank page: \(output.stderr)") }
+            try #require(output.status == 0 && output.stderr.isEmpty, "\(output)")
+            let file = staged.appendingPathComponent("result-0.pdf")
+            let pdf = try #require(PDFDocument(url: file))
+            try #require(pdf.pageCount == 1)
+            #expect((pdf.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            try expectJPEGRaster(page, quality: batch.jpegQuality, in: file)
+        } else {
+            do {
+                let recognized = try await batch.recognizePages(in: staged)
+                let blank = try #require(recognized[batch.documents[0].pages[0].file])
+                #expect(blank.transcript.isEmpty)
+            } catch where isVisionComputeFailure(String(describing: error)) {
+                try reportVisionUnavailable("Vision could not recognize the blank page: \(error)")
+            }
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func unreadablePageFailsRecognitionAndTheHelper(afterBlank: Bool, inHelper: Bool) async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let profile = ScanProfile(name: "Invoices", folderPath: folder.path, pagesPerFile: 1)
-        let (batch, staged) = try OCRBatch.stage([DocumentFixture.blank, DocumentFixture.order], profile: profile, date: Date())
+        let pages = afterBlank ? [DocumentFixture.blank, DocumentFixture.order] : [DocumentFixture.order]
+        let (batch, staged) = try OCRBatch.stage(pages, profile: profile, date: Date())
         defer { try? FileManager.default.removeItem(at: staged) }
-        try Data().write(to: staged.appendingPathComponent(batch.documents[1].pages[0].file))
-        await #expect(throws: (any Error).self) { try await batch.recognizePages(in: staged) }
-        let status = try await offTheTaskPool {
-            let child = Process()
-            child.executableURL = helper
-            child.arguments = [staged.path]
-            try child.run()
-            child.waitUntilExit()
-            return child.terminationStatus
+        let damaged = try #require(batch.documents.last?.pages.first)
+        try Data().write(to: staged.appendingPathComponent(damaged.file))
+        if inHelper {
+            let output = try await offTheTaskPool { try OCRTestHelper(in: folder).run(on: staged) }
+            if afterBlank && output.visionUnavailable { try reportVisionUnavailable("Preceding blank page: \(output.stderr)") }
+            #expect(output.status == 1)
+            #expect(output.stderr.wholeMatch(of: #/yomi-ocr: invalidImage\("[^"\n]+"\)/#) != nil, "\(output.stderr)")
+            for index in batch.documents.indices {
+                #expect(!FileManager.default.fileExists(atPath: staged.appendingPathComponent("result-\(index).pdf").path))
+            }
+        } else {
+            do {
+                _ = try await batch.recognizePages(in: staged)
+                Issue.record("Recognition accepted the damaged page")
+            } catch VisionError.invalidImage {
+            } catch where afterBlank && isVisionComputeFailure(String(describing: error)) {
+                try reportVisionUnavailable("Vision could not recognize the preceding blank page: \(error)")
+            }
         }
-        #expect(status != 0)
     }
 
     private func expectSelection(_ text: String, in document: PDFDocument, within area: CGRect) throws {

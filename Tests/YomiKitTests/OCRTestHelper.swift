@@ -28,10 +28,22 @@ struct OCRTestHelper {
         try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
     }
 
+    func run(on batch: URL) throws -> Output {
+        let child = Process()
+        child.executableURL = script
+        child.arguments = [batch.path]
+        try child.run()
+        child.waitUntilExit()
+        let output = try output()
+        try #require(child.terminationReason == .exit && child.terminationStatus == output.status)
+        return output
+    }
+
     func output() throws -> Output {
         let status = try String(contentsOf: folder.appendingPathComponent("helper-status"), encoding: .utf8)
         let stderr = try String(contentsOf: folder.appendingPathComponent("helper-errors"), encoding: .utf8)
-        return Output(status: try #require(Int32(status.trimmingCharacters(in: .newlines))), stderr: stderr)
+        return Output(status: try #require(Int32(status.trimmingCharacters(in: .newlines))),
+                      stderr: stderr.trimmingCharacters(in: .newlines))
     }
 
     struct Output {
@@ -39,29 +51,35 @@ struct OCRTestHelper {
         let stderr: String
 
         var visionUnavailable: Bool {
-            let prefix = "yomi-ocr: Vision text recognition: "
-            guard status == 1, stderr.hasPrefix(prefix), stderr.hasSuffix("\n") else { return false }
-            let diagnostic = stderr.dropFirst(prefix.count).dropLast()
-            switch diagnostic {
-            case "TextRecognition.CRImageReaderError.unknownError",
-                 #"TextRecognition.CRImageReaderError.e5rtError("e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)"#,
-                 #"TextRecognition.CRImageReaderError.e5rtError("e5rt_stream_completion_handler call failed", 10)"#:
-                return true
-            default:
-                let codeNine = #/Error Domain=(TextRecognition\.CRImageReaderError|com\.apple\.Vision) Code=9 "[^"\n]*"(?: UserInfo=\{[^\n]*\})?/#
-                return diagnostic.wholeMatch(of: codeNine) != nil
-            }
+            let prefix = "yomi-ocr: "
+            return status == 1 && stderr.hasPrefix(prefix) && isVisionComputeFailure(String(stderr.dropFirst(prefix.count)))
         }
 
         func recognized() throws -> Bool {
             if visionUnavailable {
-                print("\(Test.current?.name ?? "OCR test") used image-only PDFs after \(stderr)", terminator: "")
+                print("\(Test.current?.name ?? "OCR test") used image-only PDFs after \(stderr)")
                 return false
             }
             try #require(status == 0 && stderr.isEmpty, "Helper exit \(status), stderr: \(stderr)")
             return true
         }
     }
+}
+
+func isVisionComputeFailure(_ diagnostic: String) -> Bool {
+    switch diagnostic {
+    case #"e5rtError("e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)"#,
+         #"e5rtError("e5rt_stream_completion_handler call failed", 10)"#:
+        return true
+    default:
+        return diagnostic.wholeMatch(of: #/unsupportedComputeDevice\(".+"\)/#) != nil
+            || diagnostic.wholeMatch(of: #/Error Domain=TextRecognition\.CRImageReaderError Code=9 "[^\n]*"(?: UserInfo=\{[^\n]*\})?/#) != nil
+    }
+}
+
+func reportVisionUnavailable(_ reason: String) throws -> Never {
+    print("\(Test.current?.name ?? "OCR test") unavailable: \(reason)")
+    try Test.cancel("\(reason)")
 }
 
 func expectJPEGRaster(_ original: ProcessedPage, quality: Double, in pdf: URL, pageNumber: Int = 1) throws {
