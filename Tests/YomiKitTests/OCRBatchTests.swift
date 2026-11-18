@@ -42,7 +42,22 @@ struct OCRBatchTests {
         #expect(OCRBatch.helperURL == executable.deletingLastPathComponent().appendingPathComponent("yomi-ocr"))
     }
 
-    @Test func onlyTheReportedVisionErrorAllowsImageOnlyResults() async {
+    @Test func onlyTheReportedVisionErrorAllowsImageOnlyResults() {
+        let prefix = "yomi-ocr: Vision text recognition: "
+        let cause = "TextRecognition.CRImageReaderError.unknownError\n"
+        let failure = prefix + cause
+        #expect(OCRTestHelper.Output(status: 1, stderr: failure).visionUnavailable)
+        for status: Int32 in [0, 42, 127, 143] {
+            #expect(!OCRTestHelper.Output(status: status, stderr: failure).visionUnavailable)
+        }
+        for stderr in ["yomi-ocr: unknownError\n", "yomi-ocr: " + cause, prefix + "Other.unknownError\n",
+                       prefix + "Error Domain=TextRecognition.CRImageReaderError Code=8 \"(null)\"\n",
+                       "noise\n" + failure, failure + "noise\n"] {
+            #expect(!OCRTestHelper.Output(status: 1, stderr: stderr).visionUnavailable)
+        }
+    }
+
+    @Test func documentComputeErrorsAllowImageOnlyResults() async {
         let failure = #"yomi-ocr: e5rtError("e5rt_stream_completion_handler call failed", 10)"# + "\n"
         let unavailable = #"yomi-ocr: e5rtError("e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)"# + "\n"
         let compiler = #"e5rtError("e5rt_e5_compiler_compile call failed", 11)"#

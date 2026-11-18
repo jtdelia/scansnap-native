@@ -50,7 +50,23 @@ struct OCRTestHelper {
         let status: Int32
         let stderr: String
 
+        var visionUnavailable: Bool {
+            let prefix = "yomi-ocr: Vision text recognition: "
+            guard status == 1, stderr.hasPrefix(prefix), stderr.hasSuffix("\n") else { return false }
+            let diagnostic = stderr.dropFirst(prefix.count).dropLast()
+            switch diagnostic {
+            case "TextRecognition.CRImageReaderError.unknownError",
+                 #"TextRecognition.CRImageReaderError.e5rtError("e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)"#,
+                 #"TextRecognition.CRImageReaderError.e5rtError("e5rt_stream_completion_handler call failed", 10)"#:
+                return true
+            default:
+                let codeNine = #/Error Domain=(TextRecognition\.CRImageReaderError|com\.apple\.Vision) Code=9 "[^"\n]*"(?: UserInfo=\{[^\n]*\})?/#
+                return diagnostic.wholeMatch(of: codeNine) != nil
+            }
+        }
+
         func unavailableReason(on page: String? = nil) async -> String? {
+            if page == nil, visionUnavailable { return String(stderr.dropLast()) }
             let prefix = "yomi-ocr: "
             guard status == 1, stderr.hasPrefix(prefix), stderr.hasSuffix("\n") else { return nil }
             return await visionUnavailableReason(String(stderr.dropFirst(prefix.count).dropLast()), on: page)
