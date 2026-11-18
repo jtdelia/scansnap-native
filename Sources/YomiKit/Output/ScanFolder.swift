@@ -71,7 +71,7 @@ struct ScanFolder {
         unlinkat(directory.fileDescriptor, file.lastPathComponent, 0)
     }
 
-    private struct FolderError: LocalizedError, CustomStringConvertible {
+    struct FolderError: LocalizedError, CustomStringConvertible {
         let description: String
         var errorDescription: String? { description }
 

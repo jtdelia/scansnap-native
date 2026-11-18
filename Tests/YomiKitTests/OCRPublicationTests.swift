@@ -98,6 +98,7 @@ struct OCRPublicationTests {
         let job = OCRJob(batch: batch, folder: staged, helper: URL(fileURLWithPath: "/usr/bin/true"))
         let error = try #require(throws: (any Error).self) { try job.wait() }
         #expect(error.localizedDescription.contains(staged.path))
+        #expect(error.localizedDescription.contains(outputs[1].path))
         #expect(CGPDFDocument(outputs[0] as CFURL)?.numberOfPages == 1)
         #expect(try Data(contentsOf: outputs[1]) == foreign)
         #expect(try filesAfterReleasingReservations(in: folder) == outputs.map(\.lastPathComponent))

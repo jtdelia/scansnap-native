@@ -123,7 +123,7 @@ final class PDFReservation {
                 return claim
             }
             guard code == EEXIST, let baseName else {
-                throw NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [NSFilePathErrorKey: claim.output.path])
+                throw ScanFolder.FolderError(claim.output, code, mayHavePartialCopy: code != EEXIST)
             }
             claim = try DocumentWriter.reservePDF(in: directory, baseName)
         }
