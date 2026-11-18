@@ -54,7 +54,7 @@ final class AppModel {
         profiles.first { $0.id == buttonProfileID } ?? profiles.first
     }
 
-    init() {
+    func start() {
         load()
         service.photoLibrary = PhotoKitLibrary()
         service.onConnectionChange = { connection in

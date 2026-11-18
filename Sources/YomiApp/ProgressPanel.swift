@@ -43,7 +43,7 @@ final class ProgressPanelController {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let host = NSHostingView(rootView: ScanProgressView(model: model))
-        host.sizingOptions = [.preferredContentSize]
+        host.sizingOptions = [.preferredContentSize, .intrinsicContentSize]
         panel.contentView = host
         return panel
     }
@@ -68,8 +68,8 @@ struct ScanProgressView: View {
                     header
                     status
                     counters
-                    Spacer(minLength: 0)
                     footer
+                        .frame(maxHeight: .infinity, alignment: .bottom)
                 }
             }
             .padding(20)
@@ -106,10 +106,13 @@ struct ScanProgressView: View {
                 .foregroundStyle(.green)
                 .lineLimit(3)
         case let .failed(message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.callout)
-                .foregroundStyle(.orange)
-                .lineLimit(3)
+            ScrollView {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .layoutPriority(1)
         case .idle:
             EmptyView()
         }

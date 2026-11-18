@@ -17,6 +17,7 @@ let package = Package(
         ),
         .executableTarget(name: "yomi", dependencies: ["YomiKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(name: "YomiApp", dependencies: ["YomiKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "YomiAppTests", dependencies: ["YomiApp"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(
             name: "YomiKitTests",
             dependencies: ["YomiKit"],
