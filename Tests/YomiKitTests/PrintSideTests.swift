@@ -58,8 +58,11 @@ struct PrintSideTests {
     }
 
     @Test func printFedBackSideFirstIsSwapped() async throws {
-        let sheet = try await Self.process(front: Self.writing, back: Self.picture)
+        var profile = Self.photoProfile()
+        profile.cropToPrint = false
+        let sheet = try await Self.process(front: Self.writing, back: Self.picture, profile: profile)
         #expect(sheet.pages.map(\.source) == [.back])
+        #expect(sheet.pages.first?.foundPrint == true)
     }
 
     @Test(arguments: DocumentOutputTests.profiles.map(\.name))

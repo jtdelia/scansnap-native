@@ -15,6 +15,6 @@ public enum AutoEnhancer {
                                                  in: ImageRendering.wideGamutContext)
         else { throw ImageWriterError.cannotCreateImage }
         return ProcessedPage(image: output, resolution: page.resolution, isBlank: page.isBlank, source: page.source,
-                             isColor: page.isColor, caption: page.caption)
+                             isColor: page.isColor, caption: page.caption, foundPrint: page.foundPrint)
     }
 }

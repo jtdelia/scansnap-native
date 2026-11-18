@@ -18,8 +18,10 @@ public enum SheetProcessor {
         var back = colorProfile == nil ? ColumnFlattener.flatten(rawBack) : rawBack
 
         var backLooksLikePictureSide = false
+        var detectedPictureSide: ScannedPage.Side?
         if profile.findPictureSide || profile.backCaptions, profile.sides == .duplex {
             let sides = PrintSideDetector.measure(front: front, back: back)
+            if sides.backLooksLikePictureSide { detectedPictureSide = back.side }
             result.notes.append(String(format: "plain paper: front %.2f back %.2f", sides.frontPaper, sides.backPaper))
             if profile.findPictureSide, sides.isFedBackSideFirst {
                 swap(&front, &back)
@@ -80,6 +82,7 @@ public enum SheetProcessor {
                 result.blankSides += 1
             } else {
                 page.caption = caption
+                page.foundPrint = page.foundPrint || page.source == detectedPictureSide || caption != nil
                 result.pages.append(page)
             }
         }

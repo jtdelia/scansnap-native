@@ -10,11 +10,12 @@ private struct DocumentRequestFailure: Error, CustomStringConvertible {
 }
 
 package struct RecognizedPage {
+    package let kind: PageKind
     package let documents: [DocumentObservation.Container]
     package let transcript: String
     package let detectedData: [DataDetector.Match]
 
-    static func read(_ url: URL, language: ScanProfile.TextRecognitionLanguage) async throws -> Self {
+    static func read(_ url: URL, language: ScanProfile.TextRecognitionLanguage, kind: PageKind) async throws -> Self {
         let documents: [DocumentObservation.Container]
         do {
             documents = try await language.documentRequest.perform(on: url).map(\.document)
@@ -28,7 +29,7 @@ package struct RecognizedPage {
         for await match in transcript.dataDetectorMatches(options: language.dataDetectionOptions) {
             matches.append(match)
         }
-        return Self(documents: documents, transcript: transcript, detectedData: matches)
+        return Self(kind: kind, documents: documents, transcript: transcript, detectedData: matches)
     }
 }
 
