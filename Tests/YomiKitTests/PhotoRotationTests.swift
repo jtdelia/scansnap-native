@@ -115,9 +115,11 @@ struct PhotoRotationTests {
 
     @Test(arguments: [(CGImagePropertyOrientation.up, CGImagePropertyOrientation.up),
                       (.down, .down), (.left, .right), (.right, .left)])
-    func fastRecognitionOrientsShortNotes(fed: CGImagePropertyOrientation, expected: CGImagePropertyOrientation) async throws {
+    func shortNotesRotateWhenAccurateRecognitionFails(fed: CGImagePropertyOrientation, expected: CGImagePropertyOrientation) async throws {
         let asFed = try Self.oriented(try Self.notePrint(lineCount: 2), fed)
-        let correction = try await offTheTaskPool { try OrientationDetector.fastTextOrientation(asFed) }
+        let correction = try await offTheTaskPool {
+            OrientationDetector.textOrientation(asFed) { _ in throw CocoaError(.featureUnsupported) }
+        }
         #expect((correction ?? .up) == expected)
     }
 

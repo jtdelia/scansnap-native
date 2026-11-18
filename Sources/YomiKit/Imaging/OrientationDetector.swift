@@ -19,8 +19,11 @@ public enum OrientationDetector {
         return orientation.flatMap { rotated(image, $0) }
     }
 
-    private static func textOrientation(_ small: CGImage) -> CGImagePropertyOrientation? {
-        guard let lines = try? recognizedLines(small, orientation: .up, level: .accurate) else {
+    static func textOrientation(
+        _ small: CGImage,
+        accurateLines: (CGImage) throws -> [VNRecognizedTextObservation] = { try recognizedLines($0, orientation: .up, level: .accurate) }
+    ) -> CGImagePropertyOrientation? {
+        guard let lines = try? accurateLines(small) else {
             return try? fastTextOrientation(small)
         }
         return agreed(lines.map { line in
@@ -30,7 +33,7 @@ public enum OrientationDetector {
         })
     }
 
-    static func fastTextOrientation(_ image: CGImage) throws -> CGImagePropertyOrientation? {
+    private static func fastTextOrientation(_ image: CGImage) throws -> CGImagePropertyOrientation? {
         var votes: [CGImagePropertyOrientation?] = []
         for orientation in [CGImagePropertyOrientation.up, .down, .left, .right] {
             let lines = try recognizedLines(image, orientation: orientation, level: .fast)
