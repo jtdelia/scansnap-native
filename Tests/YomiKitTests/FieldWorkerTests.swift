@@ -8,10 +8,11 @@ struct FieldWorkerTests {
     private func writeWorker() throws -> URL {
         let script = folder.appendingPathComponent("yomi-ocr")
         try """
-        #!/bin/zsh
+        #!/bin/zsh -e
         [[ $1 == --predict ]] || exit 2
         trap '' TERM
-        print $$ > "${0:h}/pid"
+        print $$ > "${0:h}/pid.tmp"
+        /bin/mv "${0:h}/pid.tmp" "${0:h}/pid"
         exec /bin/sleep 3600
         """.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
@@ -29,16 +30,23 @@ struct FieldWorkerTests {
         defer { try? fm.removeItem(at: folder) }
         let worker = FieldWorker(executable: try writeWorker())
         let page = RecognizedPage(kind: .receipt, language: .english, documents: [], transcript: "Receipt", detectedData: [])
-        let prediction = Task { try await worker.predict(page, imageURL: folder.appendingPathComponent("unused"), in: folder) }
-        defer { prediction.cancel() }
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !fm.fileExists(atPath: folder.appendingPathComponent("pid").path), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
+        try await withThrowingTaskGroup(of: pid_t?.self) { group in
+            group.addTask {
+                _ = try await worker.predict(page, imageURL: folder.appendingPathComponent("unused"), in: folder)
+                return nil
+            }
+            group.addTask {
+                let path = folder.appendingPathComponent("pid").path
+                while !fm.fileExists(atPath: path) { try await Task.sleep(for: .milliseconds(10)) }
+                return try workerPID()
+            }
+            let startedPID = try await group.next() ?? nil
+            let pid = try #require(startedPID, "Prediction returned before cancellation")
+            try #require(kill(pid, 0) == 0)
+            group.cancelAll()
+            await #expect(throws: CancellationError.self) { try await group.next() }
+            #expect(kill(pid, 0) == -1 && errno == ESRCH)
         }
-        let pid = try workerPID()
-        prediction.cancel()
-        await #expect(throws: CancellationError.self) { try await prediction.value }
-        #expect(kill(pid, 0) == -1 && errno == ESRCH)
         #expect(try Set(fm.contentsOfDirectory(atPath: folder.path)) == ["pid", "yomi-ocr"])
     }
 
