@@ -1,18 +1,25 @@
 import AppKit
 import Testing
+@testable import YomiKit
 @testable import YomiApp
 
 @MainActor
 struct ProgressPanelTests {
-    @Test(.enabled("Requires a display") { await MainActor.run { NSScreen.main != nil } }, arguments: [
-        AppModel.JobState.running,
-        .failed("Photos access was denied. Allow access in System Settings, or find the photos in Scans/Prints.")
-    ])
-    func panelFitsItsContentOnScreen(state: AppModel.JobState) throws {
+    @Test(.enabled("Requires a display") { await MainActor.run { NSScreen.main != nil } }, arguments: [false, true])
+    func panelFitsItsContentOnScreen(showsWarning: Bool) throws {
         let app = NSApplication.shared
         let visible = try #require(NSScreen.main?.visibleFrame)
-        let model = AppModel()
-        model.jobState = state
+        var status = BatchStatus()
+        let batch = status.beginScan()
+        if showsWarning {
+            let outcome = ScanOutcome(
+                files: [], sheets: 1, pages: 1, blankPagesSkipped: 0,
+                folder: URL(fileURLWithPath: "/Scans/Prints"),
+                warning: "Photos access was denied. Allow access in System Settings, or find the photos in Scans/Prints."
+            )
+            status.finish(batch: batch, profile: ScanProfile(name: "Prints"), result: .success(outcome))
+        }
+        let model = AppModel(status: status)
         model.batchFolder = "Scans/Prints"
         let controller = ProgressPanelController()
         controller.show(model: model)

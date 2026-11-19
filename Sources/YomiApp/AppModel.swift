@@ -28,7 +28,11 @@ final class AppModel {
     }
     var connection: ScannerConnection = .disconnected
     var progress: ScanProgress?
-    private var status = BatchStatus()
+    private var status: BatchStatus
+
+    init(status: BatchStatus = BatchStatus()) {
+        self.status = status
+    }
     var jobState: BatchStatus.State { status.state }
     var activeProfile: ScanProfile?
     /// The folder the running batch saves in, or the last batch went to, as the progress panel names it.

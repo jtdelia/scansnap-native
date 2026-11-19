@@ -26,7 +26,8 @@ struct BatchStatusTests {
         status.finish(batch: fourth, profile: profile, result: .success(success))
         #expect(status.state == .failed(firstFailure))
         status.dismissFailure()
-        #expect(status.state == .failed(.init(profile: "Bills", message: "Saved 1 page. The feeder jammed.", folder: nil)))
+        #expect(status.state == .failed(.init(profile: "Bills", message: "Saved 1 page. The feeder jammed.", folder: nil,
+                                             sheets: 1, pages: 1, blankPagesSkipped: 0)))
         status.dismissFailure()
         #expect(status.state == .finished("Saved 1 page to Receipts."))
     }

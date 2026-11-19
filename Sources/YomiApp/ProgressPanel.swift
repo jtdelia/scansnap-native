@@ -74,8 +74,21 @@ struct ScanProgressView: View {
                         ScrollView {
                             Text(failure.message).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        if let sheets = failure.sheets, let pages = failure.pages {
+                            HStack(spacing: 16) {
+                                counter("Sheets", sheets)
+                                counter("Pages", pages)
+                                if let skipped = failure.blankPagesSkipped, skipped > 0 {
+                                    counter("Blank skipped", skipped)
+                                }
+                            }
+                        }
                         HStack {
                             if let folder = failure.folder {
+                                Label(folder.lastPathComponent, systemImage: "folder")
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                                 Button("Open Folder") { NSWorkspace.shared.open(folder) }
                             }
                             Spacer()

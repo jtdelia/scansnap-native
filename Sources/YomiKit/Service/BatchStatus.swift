@@ -5,6 +5,9 @@ package struct BatchStatus {
         package let profile: String
         package let message: String
         package let folder: URL?
+        package var sheets: Int? = nil
+        package var pages: Int? = nil
+        package var blankPagesSkipped: Int? = nil
     }
 
     package enum State: Equatable {
@@ -40,7 +43,10 @@ package struct BatchStatus {
         case let .success(outcome):
             let summary = outcome.summary(defaultPlace: profile.folderURL.lastPathComponent)
             if summary.isProblem {
-                failures.append(Failure(profile: profile.name, message: summary.message, folder: outcome.folder))
+                failures.append(Failure(
+                    profile: profile.name, message: summary.message, folder: outcome.folder,
+                    sheets: outcome.sheets, pages: outcome.pages, blankPagesSkipped: outcome.blankPagesSkipped
+                ))
             } else if batch == latest {
                 current = .finished(summary.message)
             }
