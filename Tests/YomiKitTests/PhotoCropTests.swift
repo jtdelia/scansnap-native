@@ -108,6 +108,7 @@ struct PhotoCropTests {
         let (width, height, skew) = Self.sizes[size]
         let page = try PageProcessor.process(try Self.scan(width: width, height: height, tone: tone, skew: skew),
                                              resolution: 150, side: .front, options: Self.photoOptions())
+        #expect(page.foundPrint)
         #expect(abs(Double(page.image.width) / 150 - width) < 0.06)
         #expect(abs(Double(page.image.height) / 150 - height) < 0.06)
         #expect(try Self.strayBorderFraction(page.image, tone: tone) < 0.02)

@@ -1,16 +1,23 @@
 import Foundation
 import ImageIO
+import Vision
 
 package struct OCRBatch: Codable {
     package struct Page: Codable {
         package let file: String
         package let resolution: Int
+        let foundPrint: Bool?
 
         fileprivate func url(in folder: URL) throws -> URL {
             guard file == URL(fileURLWithPath: file).lastPathComponent, resolution > 0 else {
                 throw ImageWriterError.cannotCreateImage
             }
             return folder.appendingPathComponent(file)
+        }
+
+        fileprivate func image(in folder: URL) throws -> CGImage? {
+            guard let source = CGImageSourceCreateWithURL(try url(in: folder) as CFURL, nil) else { return nil }
+            return CGImageSourceCreateImageAtIndex(source, 0, nil)
         }
     }
 
@@ -68,7 +75,7 @@ package struct OCRBatch: Codable {
                         try ImageWriter.write(page.image, to: folder.appendingPathComponent(file), resolution: page.resolution)
                     }
                 }
-                staged.append(Page(file: file, resolution: page.resolution))
+                staged.append(Page(file: file, resolution: page.resolution, foundPrint: page.foundPrint))
             }
             return staged
         } catch {
@@ -80,9 +87,16 @@ package struct OCRBatch: Codable {
 
     package func recognizePages(in folder: URL) async throws -> [String: RecognizedPage] {
         var recognized: [String: RecognizedPage] = [:]
-        for page in documents.flatMap(\.pages) {
-            let url = try page.url(in: folder)
-            recognized[page.file] = try await RecognizedPage.read(url, language: textRecognitionLanguage ?? .automatic)
+        for document in documents {
+            guard let first = document.pages.first else { continue }
+            guard let image = try first.image(in: folder) else {
+                throw VisionError.invalidImage("\(first.file): Could not decode the staged page")
+            }
+            let kind = await PageKind.classify(image, resolution: first.resolution, foundPrint: first.foundPrint == true)
+            for page in document.pages {
+                let url = try page.url(in: folder)
+                recognized[page.file] = try await RecognizedPage.read(url, language: textRecognitionLanguage ?? .automatic, kind: kind)
+            }
         }
         return recognized
     }
@@ -97,8 +111,7 @@ package struct OCRBatch: Codable {
                 PDFTextLayer.draw(page, in: box, context: context)
             }) { index in
                 let page = document.pages[index]
-                guard let source = CGImageSourceCreateWithURL(try page.url(in: folder) as CFURL, nil),
-                      let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw ImageWriterError.cannotCreateImage }
+                guard let image = try page.image(in: folder) else { throw ImageWriterError.cannotCreateImage }
                 return (image, page.resolution)
             }
         }

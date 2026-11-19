@@ -7,8 +7,8 @@ import Foundation
 enum PrintCropper {
     private static let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
 
-    static func crop(_ image: CIImage) -> CIImage {
-        guard var mask = PrintMask(image) else { return image }
+    static func crop(_ image: CIImage) -> (image: CIImage, foundPrint: Bool) {
+        guard var mask = PrintMask(image) else { return (image, false) }
         var upright = image
         if let angle = mask.skewAngle(), abs(angle) > 0.0015, abs(angle) < 0.15 {
             let center = CGPoint(x: image.extent.midX, y: image.extent.midY)
@@ -17,27 +17,27 @@ enum PrintCropper {
                 .translatedBy(x: -center.x, y: -center.y)
             let backing = CIImage(color: mask.backing).cropped(to: image.extent.insetBy(dx: -200, dy: -200))
             upright = image.transformed(by: rotation).composited(over: backing).cropped(to: image.extent)
-            guard let straightened = PrintMask(upright) else { return image }
+            guard let straightened = PrintMask(upright) else { return (image, false) }
             mask = straightened
         }
         return crop(upright, to: mask)
     }
 
-    private static func crop(_ image: CIImage, to mask: PrintMask) -> CIImage {
-        guard let edges = mask.edges() else { return image }
+    private static func crop(_ image: CIImage, to mask: PrintMask) -> (image: CIImage, foundPrint: Bool) {
+        guard let edges = mask.edges() else { return (image, false) }
         let scale = image.extent.width / CGFloat(mask.width)
         // Trims the boundary, where straightening blends print and backing over a pixel or two.
         let trim = 2.5
         let minX = edges.left + trim, maxX = edges.right + 1 - trim
         let minY = edges.top + trim, maxY = edges.bottom + 1 - trim
-        guard maxX > minX, maxY > minY else { return image }
+        guard maxX > minX, maxY > minY else { return (image, false) }
         // Mask rows run top-down; Core Image's origin is bottom-left. Rounds inwards.
         let left = (image.extent.minX + minX * scale).rounded(.up)
         let right = (image.extent.minX + maxX * scale).rounded(.down)
         let bottom = (image.extent.minY + (CGFloat(mask.height) - maxY) * scale).rounded(.up)
         let top = (image.extent.minY + (CGFloat(mask.height) - minY) * scale).rounded(.down)
         let rect = CGRect(x: left, y: bottom, width: right - left, height: top - bottom)
-        return image.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
+        return (image.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY)), true)
     }
 
     /// Which pixels of a downscaled copy differ from the backing colour measured around the frame.

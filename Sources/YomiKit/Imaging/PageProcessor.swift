@@ -39,6 +39,7 @@ public struct ProcessedPage: @unchecked Sendable {
     public let isColor: Bool
     /// Writing read from the back of the print, saved inside the photo's file.
     public var caption: String?
+    var foundPrint = false
 }
 
 public enum PageProcessor {
@@ -54,8 +55,9 @@ public enum PageProcessor {
                                options: ProcessingOptions) throws -> ProcessedPage {
         var image = CIImage(cgImage: source)
 
+        var foundPrint = false
         if options.cropToPrint {
-            image = PrintCropper.crop(image)
+            (image, foundPrint) = PrintCropper.crop(image)
         } else if options.cropAndStraighten {
             image = cropToPaper(image, resolution: resolution, snap: options.snapToStandardSize)
         }
@@ -110,7 +112,7 @@ public enum PageProcessor {
             : options.autoRotate ? OrientationDetector.upright(output) : nil {
             output = rotated
         }
-        return ProcessedPage(image: output, resolution: resolution, isBlank: blank, source: side, isColor: isColor)
+        return ProcessedPage(image: output, resolution: resolution, isBlank: blank, source: side, isColor: isColor, foundPrint: foundPrint)
     }
 
     // MARK: Crop and deskew
