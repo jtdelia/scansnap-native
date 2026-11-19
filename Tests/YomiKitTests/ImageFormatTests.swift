@@ -59,6 +59,27 @@ struct ImageFormatTests {
                           typeIdentifier: CGImageSourceGetType(source) as String?)
     }
 
+    @Test(arguments: [ScanProfile.FileFormat.jpeg, .png, .heic, .tiff, .multiPageTIFF])
+    func publishesTheCompletedImageEvenWhenItsNameIsTakenDuringEncoding(format: ScanProfile.FileFormat) throws {
+        let folder = try Self.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let page = try Self.page(width: 64, height: 96, seed: 1, resolution: 300)
+        let profile = ScanProfile(name: "Print", folderPath: folder.path, fileFormat: format, namePattern: [.profileName])
+        let first = folder.appendingPathComponent("Print.\(format.fileExtension)")
+        let existing = Data("existing file".utf8)
+        var calls = 0
+        let files = try DocumentWriter.save([page], profile: profile) { _ in
+            calls += 1
+            #expect(throws: Never.self) { try existing.write(to: first, options: .withoutOverwriting) }
+        }
+        #expect(calls == 1)
+        #expect(try Data(contentsOf: first) == existing)
+        let result = try #require(files.first)
+        #expect(result.lastPathComponent == "Print (2).\(format.fileExtension)")
+        let saved = try Self.read(result)
+        #expect(saved.count == 1 && saved.image.width == 64 && saved.image.height == 96)
+    }
+
     @Test(arguments: [(ScanProfile.FileFormat.png, "png", "public.png"), (.tiff, "tiff", "public.tiff")])
     func losslessFormatSavesEachPageExactly(format: ScanProfile.FileFormat, ext: String, type: String) throws {
         let folder = try Self.temporaryFolder()

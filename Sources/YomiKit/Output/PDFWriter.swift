@@ -13,6 +13,11 @@ public enum PDFWriter {
         guard let context = CGContext(url as CFURL, mediaBox: nil, nil) else {
             throw ImageWriterError.cannotWrite(url)
         }
+        try write(pages, in: context, jpegQuality: jpegQuality, searchable: searchable, progress: progress)
+    }
+
+    static func write(_ pages: [ProcessedPage], in context: CGContext, jpegQuality: Double,
+                      searchable: Bool, progress: ((Int) -> Void)?) throws {
         for (index, page) in pages.enumerated() {
             progress?(index)
             let image = try jpegBacked(page.image, quality: jpegQuality)

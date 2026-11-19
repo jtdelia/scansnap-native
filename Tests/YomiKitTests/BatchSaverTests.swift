@@ -155,6 +155,28 @@ struct BatchSaverTests {
         #expect(saved.warning?.contains(staging.path) == true, "\(saved.warning ?? "")")
     }
 
+    @Test func photosFallbackKeepsStagedFilesWhenTheYearIsLinked() throws {
+        let fm = FileManager.default
+        var profile = try Self.profile(.photos)
+        defer { try? fm.removeItem(at: profile.folderURL) }
+        let sibling = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: sibling, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: sibling) }
+        try fm.createDirectory(at: profile.folderURL, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: profile.folderURL.appendingPathComponent("2026"), withDestinationURL: sibling)
+        profile.subfolderPattern = [.year, .text("/"), .month]
+
+        let saved = try Self.save(profile, library: FakePhotoLibrary(failingWith: .accessDenied))
+        #expect(try fm.contentsOfDirectory(atPath: sibling.path).isEmpty)
+        let staging = try #require(saved.folder)
+        try #require(staging.deletingLastPathComponent().standardizedFileURL == fm.temporaryDirectory.standardizedFileURL)
+        try #require(staging.lastPathComponent.hasPrefix("Yomi-"))
+        defer { try? fm.removeItem(at: staging) }
+        #expect(saved.warning?.contains(staging.path) == true)
+        #expect(saved.files == Self.names.map { staging.appendingPathComponent($0) })
+        #expect(try saved.files.allSatisfy { try Data(contentsOf: $0).isEmpty == false })
+    }
+
     @Test(arguments: [ScanProfile.FileFormat.pdf, .multiPageTIFF], [ScanProfile.SaveDestination.photos, .folderAndPhotos])
     func formatsPhotosCannotImportSaveToTheFolder(format: ScanProfile.FileFormat,
                                                   saveTo: ScanProfile.SaveDestination) throws {

@@ -119,26 +119,29 @@ public enum BatchSaver {
     /// Copies staged files, and their `_original` copies, into the folder the scan profile saves in, numbering any
     /// that clash. When a copy fails, the copies already made are removed and the staged files are left alone.
     private static func copy(_ files: [DocumentWriter.SavedFile], into profile: ScanProfile, date: Date) throws -> [URL] {
-        let fm = FileManager.default
-        let folder = DocumentWriter.saveFolder(for: profile, date: date)
+        let folder = try DocumentWriter.openFolder(for: profile, date: date)
         var copied: [URL] = []
-        do {
-            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-            return try files.map { file in
-                let format = profile.fileFormat
-                let name = DocumentWriter.unclashedName(in: folder, file.name, format: format)
-                let url = folder.appendingPathComponent(DocumentWriter.fileName(name, format: format))
-                try fm.copyItem(at: file.url, to: url)
-                copied.append(url)
-                if let original = file.original {
-                    let originalURL = DocumentWriter.originalURL(in: folder, for: name, format: format)
-                    try fm.copyItem(at: original, to: originalURL)
-                    copied.append(originalURL)
+        func copy(_ source: URL, as name: DocumentWriter.FileName) throws -> (name: DocumentWriter.FileName, url: URL) {
+            let result = try folder.write(name, format: profile.fileFormat) { output, _ in
+                let input = try FileHandle(forReadingFrom: source)
+                defer { try? input.close() }
+                guard fcopyfile(input.fileDescriptor, output.fileDescriptor, nil, copyfile_flags_t(COPYFILE_ALL)) == 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
                 }
-                return url
+            }
+            copied.append(result.url)
+            return result
+        }
+        do {
+            return try files.map { file in
+                let result = try copy(file.url, as: file.name)
+                if let original = file.original {
+                    _ = try copy(original, as: result.name.original)
+                }
+                return result.url
             }
         } catch {
-            copied.forEach { try? fm.removeItem(at: $0) }
+            copied.forEach(folder.remove)
             throw error
         }
     }

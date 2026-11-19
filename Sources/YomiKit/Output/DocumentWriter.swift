@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 /// Saves a finished batch according to a profile's file settings.
@@ -24,14 +26,15 @@ public enum DocumentWriter {
     struct FileName {
         var stem: String
         var suffix = ""
+
+        var original: FileName { FileName(stem: stem, suffix: suffix + "_original") }
     }
 
     /// Like `save`, also telling which `_original` copy belongs to each file.
     static func saveFiles(_ pages: [ProcessedPage], profile: ScanProfile, date: Date,
                           progress: ((String) -> Void)?) throws -> [SavedFile] {
         guard !pages.isEmpty else { return [] }
-        let folder = saveFolder(for: profile, date: date)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try openFolder(for: profile, date: date)
         let starts = firstPages(pages: pages.count, profile: profile)
         let names = baseNames(profile, firstPages: starts, date: date)
 
@@ -39,42 +42,46 @@ public enum DocumentWriter {
             let end = file + 1 < starts.count ? starts[file + 1] - 1 : pages.count
             let offset = starts[file] - 1
             let filePages = Array(pages[offset..<end])
-            let name = unclashedName(in: folder, names[file], format: profile.fileFormat)
-            let url = folder.appendingPathComponent(fileName(name, format: profile.fileFormat))
-            guard profile.enhancesPhotos else {
-                try write(filePages, to: url, profile: profile, offset: offset, total: pages.count, progress: progress)
-                return SavedFile(url: url, original: nil, name: name)
+            func save(_ pagesToWrite: [ProcessedPage], as name: FileName) throws -> (name: FileName, url: URL) {
+                try folder.write(name, format: profile.fileFormat) { handle, url in
+                    try write(pagesToWrite, to: handle, url: url, profile: profile, offset: offset,
+                              total: pages.count, progress: progress)
+                }
             }
-            try write(filePages.map(AutoEnhancer.enhance), to: url, profile: profile, offset: offset,
-                      total: pages.count, progress: progress)
-            let original = originalURL(in: folder, for: name, format: profile.fileFormat)
-            try write(filePages, to: original, profile: profile, offset: offset, total: pages.count, progress: progress)
-            return SavedFile(url: url, original: original, name: name)
+            let main = try save(profile.enhancesPhotos ? filePages.map(AutoEnhancer.enhance) : filePages, as: names[file])
+            let original = profile.enhancesPhotos ? try save(filePages, as: main.name.original).url : nil
+            return SavedFile(url: main.url, original: original, name: main.name)
         }
     }
 
     /// Writes one file holding `pages`, which start at batch page `offset + 1` of `total`.
-    private static func write(_ pages: [ProcessedPage], to url: URL, profile: ScanProfile, offset: Int, total: Int,
-                              progress: ((String) -> Void)?) throws {
-        switch profile.fileFormat {
-        case .pdf:
-            try PDFWriter.write(pages, to: url, jpegQuality: profile.compression.jpegQuality,
-                                searchable: profile.searchablePDF) { index in
-                let page = offset + index + 1
-                progress?(profile.searchablePDF
-                    ? "Recognizing text on page \(page) of \(total)…"
-                    : "Saving page \(page) of \(total)…")
+    private static func write(_ pages: [ProcessedPage], to handle: FileHandle, url: URL, profile: ScanProfile,
+                              offset: Int, total: Int, progress: ((String) -> Void)?) throws {
+        try withScanFileConsumer(handle, url: url) { consumer in
+            func saving(_ index: Int) {
+                let recognizing = profile.fileFormat == .pdf && profile.searchablePDF
+                progress?("\(recognizing ? "Recognizing text on" : "Saving") page \(offset + index + 1) of \(total)…")
             }
-        case .jpeg, .png, .heic:
-            for (index, page) in pages.enumerated() {
-                progress?("Saving page \(offset + index + 1) of \(total)…")
-                try ImageWriter.write(page.image, to: url, type: profile.fileFormat.imageType,
-                                      resolution: page.resolution, quality: profile.compression.jpegQuality,
-                                      caption: page.caption)
-            }
-        case .tiff, .multiPageTIFF:
-            try TIFFWriter.write(pages, to: url) { index in
-                progress?("Saving page \(offset + index + 1) of \(total)…")
+            switch profile.fileFormat {
+            case .pdf:
+                guard let context = CGContext(consumer: consumer, mediaBox: nil, nil) else {
+                    throw ImageWriterError.cannotWrite(url)
+                }
+                try PDFWriter.write(pages, in: context, jpegQuality: profile.compression.jpegQuality,
+                                    searchable: profile.searchablePDF, progress: saving)
+            case .jpeg, .png, .heic, .tiff, .multiPageTIFF:
+                guard let destination = CGImageDestinationCreateWithDataConsumer(
+                    consumer, profile.fileFormat.imageType.identifier as CFString, pages.count, nil)
+                else { throw ImageWriterError.cannotWrite(url) }
+                if profile.fileFormat.imageType == .tiff {
+                    TIFFWriter.add(pages, to: destination, progress: saving)
+                } else {
+                    let page = pages[0]
+                    saving(0)
+                    ImageWriter.addImage(page.image, to: destination, resolution: page.resolution,
+                                         quality: profile.compression.jpegQuality, caption: page.caption)
+                }
+                guard CGImageDestinationFinalize(destination) else { throw ImageWriterError.cannotWrite(url) }
             }
         }
     }
@@ -106,6 +113,10 @@ public enum DocumentWriter {
     /// The folder a batch scanned at `date` is saved in.
     public static func saveFolder(for profile: ScanProfile, date: Date = Date()) -> URL {
         subfolders(profile, date: date).reduce(profile.folderURL) { $0.appendingPathComponent($1, isDirectory: true) }
+    }
+
+    static func openFolder(for profile: ScanProfile, date: Date) throws -> ScanFolder {
+        try ScanFolder(root: profile.folderURL, subfolders: subfolders(profile, date: date))
     }
 
     /// The scan profile's folder name and the subfolders a batch scanned at `date` goes into, such as `Yomi/2026/11`.
@@ -143,23 +154,21 @@ public enum DocumentWriter {
         }
     }
 
-    /// macOS's limit for a file or folder name, in bytes as the file system stores it. PDFs are written straight to
-    /// their file; ImageIO writes images through a temporary file whose name is 8 bytes longer, so image file
-    /// names stop at 247 bytes.
     private static let maxNameBytes = 255
-    private static let imageIOHeadroom = 8
+    private static let maxImageNameBytes = 247
 
     /// Replaces the characters macOS does not allow in file names.
     static func fileSafe(_ name: String) -> String {
-        name.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
+        name.replacingOccurrences(of: "/", with: "-", options: .literal)
+            .replacingOccurrences(of: ":", with: "-", options: .literal)
+            .replacingOccurrences(of: "\0", with: "-", options: .literal)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// `name` with the format's extension, its stem shortened only as far as the file system's limit needs.
     static func fileName(_ name: FileName, format: ScanProfile.FileFormat) -> String {
         let tail = "\(name.suffix).\(format.fileExtension)"
-        let limit = format == .pdf ? maxNameBytes : maxNameBytes - imageIOHeadroom
+        let limit = format == .pdf ? maxNameBytes : maxImageNameBytes
         return shortened(name.stem, toBytes: limit - byteCount(tail)) + tail
     }
 
@@ -175,23 +184,6 @@ public enum DocumentWriter {
             bytes += byteCount(String(character))
             return bytes <= limit
         }.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// `name`, with ` (2)`, ` (3)`… added to its suffix until no file in `folder` has it.
-    static func unclashedName(in folder: URL, _ name: FileName, format: ScanProfile.FileFormat) -> FileName {
-        var candidate = name
-        var counter = 2
-        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(fileName(candidate, format: format)).path) {
-            candidate.suffix = "\(name.suffix) (\(counter))"
-            counter += 1
-        }
-        return candidate
-    }
-
-    /// Where the untouched copy of the file called `name` goes: the same name with `_original` added.
-    static func originalURL(in folder: URL, for name: FileName, format: ScanProfile.FileFormat) -> URL {
-        let original = FileName(stem: name.stem, suffix: name.suffix + "_original")
-        return folder.appendingPathComponent(fileName(unclashedName(in: folder, original, format: format), format: format))
     }
 }
 

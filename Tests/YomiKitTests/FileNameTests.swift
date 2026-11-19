@@ -283,6 +283,77 @@ struct FileNameTests {
                                                  "2026/11/2026-11-14 21.42.05_002.jpg"])
     }
 
+    @Test(arguments: ScanProfile.FileFormat.allCases, ["2026", "2026/11"])
+    func linkedSubfolderRefusesFolderSave(format: ScanProfile.FileFormat, linkedLevel: String) throws {
+        let fm = FileManager.default
+        let workspace = try Self.temporaryFolder()
+        defer { try? fm.removeItem(at: workspace) }
+        let root = workspace.appendingPathComponent("Scans")
+        let sibling = workspace.appendingPathComponent("Scans archive")
+        let link = root.appendingPathComponent(linkedLevel)
+        try fm.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: sibling, withIntermediateDirectories: false)
+        try fm.createSymbolicLink(at: link, withDestinationURL: sibling)
+
+        let profile = ScanProfile(name: "Bank", fileFormat: format, subfolderPattern: [.year, .text("/"), .month])
+        let error = try #require(throws: (any Error).self) { try Self.save(1, profile, into: root) }
+        #expect(error.localizedDescription.contains(link.path))
+        #expect(try fm.contentsOfDirectory(atPath: sibling.path).isEmpty)
+    }
+
+    @Test func linkedProfileFolderSavesUnderTheSelectedRoot() throws {
+        let fm = FileManager.default
+        let workspace = try Self.temporaryFolder()
+        defer { try? fm.removeItem(at: workspace) }
+        let root = workspace.appendingPathComponent("Selected")
+        let target = workspace.appendingPathComponent("Archive")
+        try fm.createDirectory(at: target.appendingPathComponent("2026"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: root, withDestinationURL: target)
+        var profile = try Self.v1Profile(named: "Scan to Yomi Folder", Self.nameAndNumber)
+        profile.subfolderPattern = [.year, .text("/"), .month]
+
+        #expect(try Self.save(1, profile, into: root) == ["Invoice 0041.pdf"])
+        #expect(try Self.save(1, profile, into: root) == ["Invoice 0041 (2).pdf"])
+        let month = target.appendingPathComponent("2026/11")
+        #expect(try fm.contentsOfDirectory(atPath: month.path).sorted() == ["Invoice 0041 (2).pdf", "Invoice 0041.pdf"])
+    }
+
+    @Test func anExistingLinkCountsAsAFileNameClash() throws {
+        let fm = FileManager.default
+        let folder = try Self.temporaryFolder()
+        defer { try? fm.removeItem(at: folder) }
+        let link = folder.appendingPathComponent("Invoice 0041.pdf")
+        let target = folder.appendingPathComponent("Unused")
+        try fm.createSymbolicLink(at: link, withDestinationURL: target)
+        let profile = try Self.v1Profile(named: "Scan to Yomi Folder", Self.nameAndNumber)
+
+        #expect(try Self.save(1, profile, into: folder) == ["Invoice 0041 (2).pdf"])
+        #expect(fm.fileExists(atPath: target.path) == false)
+    }
+
+    @Test func invalidPathCharactersStayInOneNameComponent() throws {
+        let profile = ScanProfile(name: "Bank", namePattern: [.text("Invoice/\u{301}1")],
+                                  subfolderPattern: [.text("A\0B")])
+        #expect(try Self.savedPaths(1, profile) == ["A-B/Invoice-\u{301}1.pdf"])
+    }
+
+    @Test func aFileBlockingTheMonthReportsTheFolderError() throws {
+        let fm = FileManager.default
+        let folder = try Self.temporaryFolder()
+        defer { try? fm.removeItem(at: folder) }
+        let year = folder.appendingPathComponent("2026")
+        try fm.createDirectory(at: year, withIntermediateDirectories: false)
+        let month = year.appendingPathComponent("11")
+        let contents = Data("November".utf8)
+        try contents.write(to: month)
+
+        let profile = ScanProfile(name: "Bank", subfolderPattern: [.year, .text("/"), .month])
+        let error = try #require(throws: (any Error).self) { try Self.save(1, profile, into: folder) }
+        #expect(error.localizedDescription.contains(month.path))
+        #expect(try Data(contentsOf: month) == contents)
+        #expect(try fm.contentsOfDirectory(atPath: year.path) == ["11"])
+    }
+
     @Test(arguments: [
         ([.text("..")], "2026-11-14 21.42.05.pdf"),
         ([.text("../../escape")], "escape/2026-11-14 21.42.05.pdf"),
