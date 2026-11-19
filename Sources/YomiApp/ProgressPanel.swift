@@ -121,7 +121,7 @@ struct ScanProgressView: View {
                                 counters
                             }
                             footer
-                                .frame(maxHeight: .infinity, alignment: .bottom)
+                                .frame(maxHeight: model.finishedBatch == nil ? .infinity : nil, alignment: .bottom)
                         }
                     }
                 }
