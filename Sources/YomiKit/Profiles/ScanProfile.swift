@@ -182,6 +182,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var cropAndStraighten: Bool
     public var fileFormat: FileFormat
     public var searchablePDF: Bool
+    public var exportFields: Bool
     public var textRecognitionLanguage: TextRecognitionLanguage
     public var compression: Compression
     /// Saved pages per file for PDF and multi-page TIFF; `nil` keeps the whole batch in one file.
@@ -223,6 +224,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         cropAndStraighten: Bool = true,
         fileFormat: FileFormat = .pdf,
         searchablePDF: Bool = true,
+        exportFields: Bool = false,
         textRecognitionLanguage: TextRecognitionLanguage = .automatic,
         compression: Compression = .medium,
         pagesPerFile: Int? = nil,
@@ -252,6 +254,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.cropAndStraighten = cropAndStraighten
         self.fileFormat = fileFormat
         self.searchablePDF = searchablePDF
+        self.exportFields = exportFields
         self.textRecognitionLanguage = textRecognitionLanguage
         self.compression = compression
         self.pagesPerFile = pagesPerFile
@@ -289,6 +292,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
             ?? defaults.cropAndStraighten
         fileFormat = try container.decodeIfPresent(FileFormat.self, forKey: .fileFormat) ?? defaults.fileFormat
         searchablePDF = try container.decodeIfPresent(Bool.self, forKey: .searchablePDF) ?? defaults.searchablePDF
+        exportFields = try container.decodeIfPresent(Bool.self, forKey: .exportFields) ?? defaults.exportFields
         textRecognitionLanguage = try container.decodeIfPresent(TextRecognitionLanguage.self, forKey: .textRecognitionLanguage)
             ?? defaults.textRecognitionLanguage
         compression = try container.decodeIfPresent(Compression.self, forKey: .compression) ?? defaults.compression

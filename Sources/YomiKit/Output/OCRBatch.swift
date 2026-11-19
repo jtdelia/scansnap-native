@@ -23,10 +23,11 @@ package struct OCRBatch: Codable {
 
     package struct Document: Codable {
         package let outputURL: URL
+        let exportName: DocumentWriter.FileName?
         package let pages: [Page]
         fileprivate var reservation: PDFReservation?
 
-        private enum CodingKeys: CodingKey { case outputURL, pages }
+        private enum CodingKeys: CodingKey { case outputURL, exportName, pages }
     }
 
     package let jpegQuality: Double
@@ -47,7 +48,8 @@ package struct OCRBatch: Codable {
             directory = destination
             let documents = try DocumentWriter.fileGroups(pages: pages.count, profile: profile, date: date).map { group in
                 let reservation = try DocumentWriter.reservePDF(in: destination, group.name)
-                return Document(outputURL: reservation.output, pages: Array(staged[group.range]), reservation: reservation)
+                return Document(outputURL: reservation.output, exportName: profile.exportFields ? group.name : nil,
+                                pages: Array(staged[group.range]), reservation: reservation)
             }
             let batch = OCRBatch(jpegQuality: profile.compression.jpegQuality, textRecognitionLanguage: profile.textRecognitionLanguage,
                                  documents: documents)
@@ -101,10 +103,36 @@ package struct OCRBatch: Codable {
         return recognized
     }
 
-    package func writePDFs(in folder: URL, recognizedPages: [String: RecognizedPage] = [:]) throws {
+    package func readFields(in folder: URL, recognizedPages: [String: RecognizedPage]) async throws -> [String: PageFields] {
+        try await readFields(in: folder, recognizedPages: recognizedPages, worker: FieldWorker(executable: Self.helperURL))
+    }
+
+    func readFields(in folder: URL, recognizedPages: [String: RecognizedPage], worker: FieldWorker,
+                    examples: String = "") async throws -> [String: PageFields] {
+        var fields: [String: PageFields] = [:]
+        var available = true
+        for page in documents.flatMap(\.pages) {
+            guard let recognized = recognizedPages[page.file] else { continue }
+            let url = try page.url(in: folder)
+            var proposed: PageFields?
+            if available {
+                do {
+                    proposed = try await worker.predict(recognized, imageURL: url, in: folder, examples: examples)
+                } catch {
+                    ScanLog.write("  Field worker for \(page.file): \(error). Saving the searchable PDF.")
+                    available = false
+                }
+            }
+            fields[page.file] = PageFields.verified(proposed, in: recognized)
+        }
+        return fields
+    }
+
+    package func writePDFs(in folder: URL, recognizedPages: [String: RecognizedPage] = [:], fields: [String: PageFields] = [:]) throws {
         for (index, document) in documents.enumerated() {
             let result = resultURL(in: folder, index: index)
-            guard let context = CGContext(result as CFURL, mediaBox: nil, nil) else { throw ImageWriterError.cannotWrite(result) }
+            let metadata = PageFields.pdfInfo(document.pages.compactMap { fields[$0.file] })
+            guard let context = CGContext(result as CFURL, mediaBox: nil, metadata as CFDictionary) else { throw ImageWriterError.cannotWrite(result) }
             try PDFWriter.write(pages: document.pages.count, in: context, jpegQuality: jpegQuality,
                                 textLayer: { index, box, context in
                 guard let page = recognizedPages[document.pages[index].file] else { return }
@@ -115,6 +143,11 @@ package struct OCRBatch: Codable {
                 return (image, page.resolution)
             }
         }
+        do {
+            try JSONEncoder().encode(fields).write(to: folder.appendingPathComponent("fields.json"), options: .atomic)
+        } catch {
+            ScanLog.write("  Could not save fields.json for \(folder.path): \(error.localizedDescription).")
+        }
     }
 
     fileprivate func validatePDFs(in folder: URL) throws {
@@ -124,12 +157,26 @@ package struct OCRBatch: Codable {
         }
     }
 
-    func publish(in folder: URL) throws {
+    @discardableResult
+    func publish(in folder: URL, includeFields: Bool = true) throws -> [OCRDocumentOutput] {
         defer { documents.forEach { $0.reservation?.release() } }
         try validatePDFs(in: folder)
-        for (index, document) in documents.enumerated() {
+        let file = folder.appendingPathComponent("fields.json")
+        var fields: [String: PageFields] = [:]
+        if includeFields {
+            fields = (try? JSONDecoder().decode([String: PageFields].self, from: Data(contentsOf: file))) ?? [:]
+        }
+        return try documents.enumerated().map { index, document in
+            let pdf = resultURL(in: folder, index: index)
+            let pages = document.pages.compactMap { fields[$0.file] }
             guard let reservation = document.reservation else { throw ImageWriterError.cannotWrite(document.outputURL) }
-            try reservation.publish(resultURL(in: folder, index: index), pages: document.pages.count)
+            if let name = document.exportName {
+                let urls = try DocumentWriter.publishPDF(pdf, sidecars: PageFields.sidecars(pages),
+                                                         in: reservation.directory, name: name, reservation: reservation)
+                return OCRDocumentOutput(pdf: urls[0], sidecars: Array(urls.dropFirst()), pages: pages)
+            }
+            try reservation.publish(pdf, pages: document.pages.count)
+            return OCRDocumentOutput(pdf: reservation.output, sidecars: [], pages: pages)
         }
     }
 }
@@ -154,7 +201,7 @@ struct OCRRecoveryError: LocalizedError, CustomStringConvertible {
 
 final class OCRJob: @unchecked Sendable {
     private let finished = DispatchGroup()
-    private var failure: Error?
+    private var outputs: Result<[OCRDocumentOutput], Error> = .success([])
 
     init(batch: OCRBatch, folder: URL, helper: URL) {
         DispatchQueue.global(qos: .userInitiated).async(group: finished) { [self] in
@@ -183,22 +230,23 @@ final class OCRJob: @unchecked Sendable {
                 ScanLog.write("  yomi-ocr \(fallbackReason). Saving image-only PDFs.")
                 try batch.writePDFs(in: folder)
             }
-            try batch.publish(in: folder)
+            outputs = .success(try batch.publish(in: folder, includeFields: fallbackReason == nil))
             try? FileManager.default.removeItem(at: folder)
         } catch {
             let count = batch.documents.reduce(0) { $0 + $1.pages.count }
             let recovery = OCRRecoveryError(folder: folder, saved: count, total: count, cause: error)
-            failure = recovery
+            outputs = .failure(recovery)
             ScanLog.write("  \(recovery)")
         }
     }
 
-    func wait() throws {
+    @discardableResult
+    func wait() throws -> [OCRDocumentOutput] {
         finished.wait()
-        if let failure { throw failure }
+        return try outputs.get()
     }
 
-    func notify(on queue: DispatchQueue, _ completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
+    func notify(on queue: DispatchQueue, _ completion: @escaping @Sendable (Result<[OCRDocumentOutput], Error>) -> Void) {
         finished.notify(queue: queue) { completion(Result { try self.wait() }) }
     }
 }

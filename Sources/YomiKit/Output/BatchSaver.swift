@@ -41,7 +41,8 @@ public enum PhotoLibraryError: Error, Equatable, CustomStringConvertible {
 /// Where a batch ended up.
 public struct SavedBatch: Sendable {
     /// Files left in the folder.
-    public let files: [URL]
+    public internal(set) var files: [URL]
+    package var ocrOutputs: [OCRDocumentOutput] = []
     /// Why the batch is not where the scan profile asked, if it isn't.
     public let warning: String?
     /// Where the batch went, for "Saved 3 pages to …".
@@ -56,9 +57,12 @@ public struct SavedBatch: Sendable {
 public enum BatchSaver {
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
                             date: Date = Date(), progress: ((String) -> Void)? = nil) throws -> SavedBatch {
-        let (saved, recognition) = try start(pages, profile: profile, photoLibrary: photoLibrary, date: date,
+        var (saved, recognition) = try start(pages, profile: profile, photoLibrary: photoLibrary, date: date,
                                              progress: progress)
-        try recognition?.wait()
+        if let recognition {
+            saved.ocrOutputs = try recognition.wait()
+            saved.files = saved.ocrOutputs.map(\.pdf)
+        }
         return saved
     }
 

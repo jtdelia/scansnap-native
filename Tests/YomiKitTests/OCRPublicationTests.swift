@@ -66,11 +66,12 @@ struct OCRPublicationTests {
         try expectOriginals(in: error.folder)
     }
 
-    @Test func stagedBatchRejectsAGeneratedLinkEvenWhenItStillNamesTheReservedDirectory() throws {
+    @Test(arguments: [false, true])
+    func stagedBatchRejectsAGeneratedLinkEvenWhenItStillNamesTheReservedDirectory(export: Bool) throws {
         defer { try? fm.removeItem(at: folder) }
         let root = folder.appendingPathComponent("Scans")
         let outside = folder.appendingPathComponent("Moved")
-        let profile = ScanProfile(name: "Bills", folderPath: root.path, subfolderPattern: [.year, .text("/"), .month])
+        let profile = ScanProfile(name: "Bills", folderPath: root.path, exportFields: export, subfolderPattern: [.year, .text("/"), .month])
         let date = Date()
         let (batch, staged) = try OCRBatch.stage([page(width: 12), page(width: 24)], profile: profile, date: date)
         defer { try? fm.removeItem(at: staged) }

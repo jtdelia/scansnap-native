@@ -2,7 +2,7 @@ import CoreGraphics
 import FoundationModels
 
 @Generable
-package enum PageKind {
+package enum PageKind: Codable {
     case document
     case businessCard
     case receipt
