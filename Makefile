@@ -8,7 +8,7 @@ lint:
 	python3 -m py_compile scripts/gen_s300_tables.py
 
 test:
-	swift test
+	swift test --no-parallel
 
 build:
 	swift build -c release

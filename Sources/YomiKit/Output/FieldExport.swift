@@ -5,6 +5,8 @@ package struct OCRDocumentOutput: Sendable {
     package let pdf: URL
     package let sidecars: [URL]
     package let pages: [PageFields]
+    var naming: PageNaming?
+    var usedRules: Set<UUID> = []
 }
 
 extension PageFields {

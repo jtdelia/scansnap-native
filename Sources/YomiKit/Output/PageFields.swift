@@ -39,6 +39,7 @@ package struct ReceiptFields: Codable, Equatable, Sendable {
 package struct DocumentFields: Codable, Equatable, Sendable {
     package var title: String?
     package var summary: String?
+    package var date: String?
 }
 
 package enum PageFields: Codable, Equatable, Sendable {
@@ -58,7 +59,8 @@ package enum PageFields: Codable, Equatable, Sendable {
         case let (.receipt, .receipt(receipt)): return .receipt(receipt.verified(in: page))
         case let (.document, .document(doc)):
             let summary = doc.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return .document(DocumentFields(title: page.printed(doc.title), summary: summary == "" ? nil : summary))
+            return .document(DocumentFields(title: page.printed(doc.title), summary: summary == "" ? nil : summary,
+                                            date: page.date(doc.date)))
         case (.businessCard, _): return .businessCard(.init())
         case (.receipt, _): return .receipt(.init())
         case (.document, _): return .document(.init())
@@ -86,7 +88,7 @@ package enum PageFields: Codable, Equatable, Sendable {
                 """).map(Self.receipt)
         case .document:
             return try await generate(model, page, image, examples: examples, task: """
-                Copy the printed document title. Summarize the document in one short sentence in its original language.
+                Copy the printed document title and its issue date if present. Summarize the document in one short sentence in its original language.
                 """).map(Self.document)
         case .print: return nil
         }

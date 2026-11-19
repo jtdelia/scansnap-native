@@ -23,7 +23,7 @@ public enum DocumentWriter {
 
     /// A file name before its extension. Only `stem`, the part from the name pattern, is ever shortened; the
     /// page, clash and `_original` suffixes Yomi adds are always kept whole.
-    struct FileName: Codable {
+    struct FileName: Codable, Equatable {
         var stem: String
         var suffix = ""
 
@@ -179,15 +179,16 @@ public enum DocumentWriter {
             let values = FileNamePattern.Values(date: date, profileName: profile.name,
                                                 runningNumber: profile.nextNumber + index,
                                                 numberDigits: profile.numberDigits, pageNumber: page)
-            var pattern = profile.namePattern
-            var name = fileSafe(pattern.render(values))
-            if name.isEmpty {
-                pattern = .dateAndTime
-                name = fileSafe(pattern.render(values))
-            }
-            let suffix = firstPages.count > 1 && !pattern.numbersFiles ? String(format: "_%03d", page) : ""
-            return FileName(stem: name, suffix: suffix)
+            return baseName(profile.namePattern, values: values, multiple: firstPages.count > 1)
         }
+    }
+
+    static func baseName(_ pattern: FileNamePattern, values: FileNamePattern.Values, multiple: Bool,
+                         fields: [PageFields] = [], preferredStem: String? = nil) -> FileName {
+        let rendered = fileSafe(preferredStem ?? pattern.render(values, fields: fields))
+        let name = rendered.isEmpty ? FileNamePattern.dateAndTime.render(values) : rendered
+        let suffix = multiple && (rendered.isEmpty || !pattern.numbersFiles || preferredStem != nil) ? String(format: "_%03d", values.pageNumber) : ""
+        return FileName(stem: name, suffix: suffix)
     }
 
     private static let maxNameBytes = 255

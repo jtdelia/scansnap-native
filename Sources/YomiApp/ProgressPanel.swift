@@ -2,7 +2,6 @@ import AppKit
 import YomiKit
 import SwiftUI
 
-/// Floating glass HUD shown while a scan runs; it never takes focus from the frontmost app.
 @MainActor
 final class ProgressPanelController {
     static let shared = ProgressPanelController()
@@ -35,9 +34,14 @@ final class ProgressPanelController {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
+    func dismiss() {
+        hideWork?.cancel()
+        panel?.orderOut(nil)
+    }
+
     private func makePanel(model: AppModel) -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 250),
-                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = EditableProgressPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 250),
+                                          styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.backgroundColor = .clear
@@ -58,6 +62,10 @@ final class ProgressPanelController {
         panel.setFrame(NSRect(x: visible.midX - size.width / 2, y: visible.maxY - size.height - 40,
                               width: size.width, height: size.height), display: true)
     }
+}
+
+private final class EditableProgressPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }
 
 struct ScanProgressView: View {
@@ -101,9 +109,19 @@ struct ScanProgressView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             header
                             status
-                            counters
+                            if let batch = model.finishedBatch {
+                                ScrollView {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        ForEach(batch.files) { file in
+                                            SavedFileRow(file: file, model: model)
+                                        }
+                                    }
+                                }
+                            } else {
+                                counters
+                            }
                             footer
-                                .frame(maxHeight: .infinity, alignment: .bottom)
+                                .frame(maxHeight: model.finishedBatch == nil ? .infinity : nil, alignment: .bottom)
                         }
                     }
                 }
@@ -114,7 +132,6 @@ struct ScanProgressView: View {
             .glassEffect(.regular, in: .rect(cornerRadius: 28))
         }
         .padding(10)
-        // The panel never becomes key, so it would otherwise always draw as inactive.
         .environment(\.appearsActive, true)
     }
 
@@ -172,7 +189,9 @@ struct ScanProgressView: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            if model.jobState == .running {
+            if model.finishedBatch != nil {
+                Button("Done") { ProgressPanelController.shared.dismiss() }
+            } else if model.jobState == .running {
                 Button("Stop") { model.cancelScan() }
                     .buttonStyle(.glass(.regular.interactive()))
             }

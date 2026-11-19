@@ -162,6 +162,7 @@ private extension View {
 
 struct ScannerSettingsView: View {
     @Bindable var model: AppModel
+    @State private var managingNames = false
     @State private var firmwareError: String?
     @State private var colorProfile = ColorProfile.locate()
     @State private var colorProfileError: String?
@@ -197,6 +198,8 @@ struct ScannerSettingsView: View {
             }
 
             Section("General") {
+                Button("Manage Learned Names…") { managingNames = true }
+                    .sheet(isPresented: $managingNames) { LearnedNamesView(model: model) }
                 Picker("Appearance", selection: $model.appearance) {
                     ForEach(AppSettings.Appearance.allCases, id: \.self) { Text($0.title).tag($0) }
                 }

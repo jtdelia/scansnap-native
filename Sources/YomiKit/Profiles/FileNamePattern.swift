@@ -14,9 +14,11 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
         case runningNumber
         /// The number, within the batch, of the first page in the file.
         case pageNumber
+        case titleText, merchant, pageDate, pageKind
 
         /// Pieces other than typed text, in the order the editor offers them.
-        public static let all: [Piece] = [.date, .time, .year, .month, .day, .profileName, .runningNumber, .pageNumber]
+        public static let all: [Piece] = [.date, .time, .year, .month, .day, .profileName, .runningNumber, .pageNumber,
+                                          .titleText, .merchant, .pageDate, .pageKind]
 
         /// Pieces a subfolder pattern offers: the same for every file in a batch, so a batch never spreads
         /// across folders.
@@ -33,6 +35,10 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
             case .profileName: "Scan profile name"
             case .runningNumber: "Running number"
             case .pageNumber: "Page number"
+            case .titleText: "Title"
+            case .merchant: "Merchant or company"
+            case .pageDate: "Page date"
+            case .pageKind: "Page kind"
             }
         }
 
@@ -48,6 +54,10 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
             case .profileName: "profile"
             case .runningNumber: "number"
             case .pageNumber: "page"
+            case .titleText: "title"
+            case .merchant: "merchant"
+            case .pageDate: "pageDate"
+            case .pageKind: "kind"
             }
         }
 
@@ -147,7 +157,7 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
     var numbersFiles: Bool { usesRunningNumber || pieces.contains(.pageNumber) }
 
     /// The values that fill a pattern's pieces for one file.
-    struct Values {
+    struct Values: Codable {
         var date: Date
         var profileName: String
         var runningNumber: Int
@@ -155,13 +165,17 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
         var pageNumber: Int
     }
 
-    func render(_ values: Values) -> String {
+    var usesPageFields: Bool {
+        pieces.contains { [.titleText, .merchant, .pageDate, .pageKind].contains($0) }
+    }
+
+    func render(_ values: Values, fields: [PageFields] = []) -> String {
         let formatter = DateFormatter()
         func format(_ dateFormat: String) -> String {
             formatter.dateFormat = dateFormat
             return formatter.string(from: values.date)
         }
-        return pieces.map { piece in
+        func value(_ piece: Piece) -> String? {
             switch piece {
             case let .text(text): text
             case .date: format("yyyy-MM-dd")
@@ -172,7 +186,67 @@ public struct FileNamePattern: Codable, Hashable, Sendable, ExpressibleByArrayLi
             case .profileName: values.profileName
             case .runningNumber: String(format: "%0\(max(1, values.numberDigits))d", values.runningNumber)
             case .pageNumber: String(format: "%03d", values.pageNumber)
+            case .titleText: fields.lazy.compactMap(\.nameTitle).first
+            case .merchant: fields.lazy.compactMap(\.merchant).first
+            case .pageDate: fields.lazy.compactMap(\.pageDate).first
+            case .pageKind: fields.first?.kindName
             }
-        }.joined()
+        }
+        let rendered = pieces.map(value)
+        guard rendered.contains(nil) else { return rendered.compactMap { $0 }.joined() }
+        let pairs: [Character: Character] = ["(": ")", "[": "]", "{": "}"]
+        var groups: [(open: Character, close: Character, outer: RenderedName)] = []
+        var name = RenderedName()
+        for (piece, text) in zip(pieces, rendered) {
+            guard case let .text(literal) = piece else {
+                name.append(text)
+                continue
+            }
+            var start = literal.startIndex
+            for index in literal.indices {
+                let character = literal[index]
+                if let close = pairs[character] {
+                    name.appendLiteral(literal[start..<index])
+                    groups.append((character, close, name))
+                    name = RenderedName()
+                } else if character == groups.last?.close, let group = groups.popLast() {
+                    name.appendLiteral(literal[start..<index])
+                    let contents = name.text
+                    let empty = contents.isEmpty && name.omitted
+                    name = group.outer
+                    name.append(empty ? nil : "\(group.open)\(contents)\(character)")
+                } else { continue }
+                start = literal.index(after: index)
+            }
+            name.appendLiteral(literal[start...])
+        }
+        while let group = groups.popLast() {
+            let contents = name.text
+            name = group.outer
+            name.append("\(group.open)\(contents)")
+        }
+        return name.text
+    }
+
+    private struct RenderedName {
+        var result = ""
+        var separator = ""
+        var omitted = false
+
+        var text: String { result + (omitted ? "" : separator) }
+
+        mutating func append(_ value: String?) {
+            guard let value else { omitted = true; return }
+            result += separator + value
+            separator = ""
+            omitted = false
+        }
+
+        mutating func appendLiteral(_ literal: Substring) {
+            guard !literal.isEmpty else { return }
+            if !literal.allSatisfy({ $0.isWhitespace || $0.isPunctuation }) { append(String(literal)) }
+            else if !omitted { separator += literal }
+            else if !result.isEmpty, separator.allSatisfy(\.isWhitespace) { separator = String(literal) }
+        }
     }
 }

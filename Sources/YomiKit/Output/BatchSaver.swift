@@ -58,7 +58,7 @@ public enum BatchSaver {
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
                             date: Date = Date(), progress: ((String) -> Void)? = nil) throws -> SavedBatch {
         var (saved, recognition) = try start(pages, profile: profile, photoLibrary: photoLibrary, date: date,
-                                             progress: progress)
+                                             learnedNames: ScanHistory.savedRules(), progress: progress)
         if let recognition {
             saved.ocrOutputs = try recognition.wait()
             saved.files = saved.ocrOutputs.map(\.pdf)
@@ -67,7 +67,7 @@ public enum BatchSaver {
     }
 
     static func start(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
-                      date: Date = Date(), helper: URL = OCRBatch.helperURL,
+                      date: Date = Date(), helper: URL = OCRBatch.helperURL, learnedNames: [LearnedName] = [],
                       progress: ((String) -> Void)? = nil) throws -> (SavedBatch, OCRJob?) {
         guard !pages.isEmpty, profile.fileFormat == .pdf else {
             return (try saveImages(pages, profile: profile, photoLibrary: photoLibrary, date: date, progress: progress), nil)
@@ -78,7 +78,7 @@ public enum BatchSaver {
         if profile.searchablePDF {
             do {
                 progress?("Preparing pages for text recognition…")
-                let (batch, folder) = try OCRBatch.stage(pages, profile: profile, date: date)
+                let (batch, folder) = try OCRBatch.stage(pages, profile: profile, date: date, learnedNames: learnedNames)
                 let saved = SavedBatch(files: batch.documents.map(\.outputURL), warning: nil, place: place, folder: destination)
                 return (saved, OCRJob(batch: batch, folder: folder, helper: helper))
             } catch {

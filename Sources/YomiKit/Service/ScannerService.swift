@@ -373,7 +373,8 @@ public final class ScannerService: @unchecked Sendable {
             if let stopReason { throw stopReason }
             return (ScanOutcome(files: [], sheets: sheets, pages: 0, blankPagesSkipped: skipped), nil)
         }
-        let (saved, recognition) = try BatchSaver.start(pages, profile: profile, photoLibrary: photoLibrary) { phase in
+        let (saved, recognition) = try BatchSaver.start(pages, profile: profile, photoLibrary: photoLibrary,
+                                                      learnedNames: ScanHistory.savedRules()) { phase in
             update { $0.phase = phase }
         }
         if let warning = saved.warning { ScanLog.write("  \(warning)") }
