@@ -106,6 +106,18 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
+    public enum TextRecognitionLanguage: String, Codable, CaseIterable, Sendable {
+        case automatic, english, japaneseAndEnglish
+
+        public var title: String {
+            switch self {
+            case .automatic: "Automatic"
+            case .english: "English"
+            case .japaneseAndEnglish: "Japanese and English"
+            }
+        }
+    }
+
     public enum Compression: String, Codable, CaseIterable, Sendable {
         case low, medium, high
 
@@ -170,6 +182,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
     public var cropAndStraighten: Bool
     public var fileFormat: FileFormat
     public var searchablePDF: Bool
+    public var textRecognitionLanguage: TextRecognitionLanguage
     public var compression: Compression
     /// Saved pages per file for PDF and multi-page TIFF; `nil` keeps the whole batch in one file.
     public var pagesPerFile: Int?
@@ -210,6 +223,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         cropAndStraighten: Bool = true,
         fileFormat: FileFormat = .pdf,
         searchablePDF: Bool = true,
+        textRecognitionLanguage: TextRecognitionLanguage = .automatic,
         compression: Compression = .medium,
         pagesPerFile: Int? = nil,
         namePattern: FileNamePattern = .dateAndTime,
@@ -238,6 +252,7 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
         self.cropAndStraighten = cropAndStraighten
         self.fileFormat = fileFormat
         self.searchablePDF = searchablePDF
+        self.textRecognitionLanguage = textRecognitionLanguage
         self.compression = compression
         self.pagesPerFile = pagesPerFile
         self.namePattern = namePattern
@@ -274,6 +289,8 @@ public struct ScanProfile: Codable, Identifiable, Hashable, Sendable {
             ?? defaults.cropAndStraighten
         fileFormat = try container.decodeIfPresent(FileFormat.self, forKey: .fileFormat) ?? defaults.fileFormat
         searchablePDF = try container.decodeIfPresent(Bool.self, forKey: .searchablePDF) ?? defaults.searchablePDF
+        textRecognitionLanguage = try container.decodeIfPresent(TextRecognitionLanguage.self, forKey: .textRecognitionLanguage)
+            ?? defaults.textRecognitionLanguage
         compression = try container.decodeIfPresent(Compression.self, forKey: .compression) ?? defaults.compression
         pagesPerFile = try container.decodeIfPresent(Int.self, forKey: .pagesPerFile) ?? defaults.pagesPerFile
         namePattern = try (try? container.decodeIfPresent(FileNamePattern.self, forKey: .namePattern))

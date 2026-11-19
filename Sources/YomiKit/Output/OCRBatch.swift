@@ -5,6 +5,13 @@ package struct OCRBatch: Codable {
     package struct Page: Codable {
         package let file: String
         package let resolution: Int
+
+        fileprivate func url(in folder: URL) throws -> URL {
+            guard file == URL(fileURLWithPath: file).lastPathComponent, resolution > 0 else {
+                throw ImageWriterError.cannotCreateImage
+            }
+            return folder.appendingPathComponent(file)
+        }
     }
 
     package struct Document: Codable {
@@ -16,6 +23,7 @@ package struct OCRBatch: Codable {
     }
 
     package let jpegQuality: Double
+    let textRecognitionLanguage: ScanProfile.TextRecognitionLanguage?
     package let documents: [Document]
 
     static var helperURL: URL {
@@ -34,7 +42,8 @@ package struct OCRBatch: Codable {
                 let reservation = try DocumentWriter.reservePDF(in: destination, group.name)
                 return Document(outputURL: reservation.output, pages: Array(staged[group.range]), reservation: reservation)
             }
-            let batch = OCRBatch(jpegQuality: profile.compression.jpegQuality, documents: documents)
+            let batch = OCRBatch(jpegQuality: profile.compression.jpegQuality, textRecognitionLanguage: profile.textRecognitionLanguage,
+                                 documents: documents)
             try JSONEncoder().encode(batch).write(to: folder.appendingPathComponent("manifest.json"))
             return (batch, folder)
         } catch {
@@ -69,14 +78,26 @@ package struct OCRBatch: Codable {
 
     private func resultURL(in folder: URL, index: Int) -> URL { folder.appendingPathComponent("result-\(index).pdf") }
 
-    package func writePDFs(in folder: URL, textLayer: ((CGImage, CGRect, CGContext) throws -> Void)?) throws {
+    package func recognizePages(in folder: URL) async throws -> [String: RecognizedPage] {
+        var recognized: [String: RecognizedPage] = [:]
+        for page in documents.flatMap(\.pages) {
+            let url = try page.url(in: folder)
+            recognized[page.file] = try await RecognizedPage.read(url, language: textRecognitionLanguage ?? .automatic)
+        }
+        return recognized
+    }
+
+    package func writePDFs(in folder: URL, recognizedPages: [String: RecognizedPage] = [:]) throws {
         for (index, document) in documents.enumerated() {
             let result = resultURL(in: folder, index: index)
             guard let context = CGContext(result as CFURL, mediaBox: nil, nil) else { throw ImageWriterError.cannotWrite(result) }
-            try PDFWriter.write(pages: document.pages.count, in: context, jpegQuality: jpegQuality, textLayer: textLayer) { index in
+            try PDFWriter.write(pages: document.pages.count, in: context, jpegQuality: jpegQuality,
+                                textLayer: { index, box, context in
+                guard let page = recognizedPages[document.pages[index].file] else { return }
+                PDFTextLayer.draw(page, in: box, context: context)
+            }) { index in
                 let page = document.pages[index]
-                guard page.file == URL(fileURLWithPath: page.file).lastPathComponent, page.resolution > 0,
-                      let source = CGImageSourceCreateWithURL(folder.appendingPathComponent(page.file) as CFURL, nil),
+                guard let source = CGImageSourceCreateWithURL(try page.url(in: folder) as CFURL, nil),
                       let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw ImageWriterError.cannotCreateImage }
                 return (image, page.resolution)
             }
@@ -147,7 +168,7 @@ final class OCRJob: @unchecked Sendable {
         do {
             if let fallbackReason {
                 ScanLog.write("  yomi-ocr \(fallbackReason). Saving image-only PDFs.")
-                try batch.writePDFs(in: folder, textLayer: nil)
+                try batch.writePDFs(in: folder)
             }
             try batch.publish(in: folder)
             try? FileManager.default.removeItem(at: folder)

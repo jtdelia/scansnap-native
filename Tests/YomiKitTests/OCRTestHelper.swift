@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+import Vision
 @testable import YomiKit
 
 struct OCRTestHelper {
@@ -28,6 +29,17 @@ struct OCRTestHelper {
         try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
     }
 
+    func run(on batch: URL) throws -> Output {
+        let child = Process()
+        child.executableURL = script
+        child.arguments = [batch.path]
+        try child.run()
+        child.waitUntilExit()
+        let output = try output()
+        try #require(child.terminationReason == .exit && child.terminationStatus == output.status)
+        return output
+    }
+
     func output() throws -> Output {
         let status = try String(contentsOf: folder.appendingPathComponent("helper-status"), encoding: .utf8)
         let stderr = try String(contentsOf: folder.appendingPathComponent("helper-errors"), encoding: .utf8)
@@ -53,15 +65,68 @@ struct OCRTestHelper {
             }
         }
 
-        func recognized() throws -> Bool {
-            if visionUnavailable {
-                print("\(Test.current?.name ?? "OCR test") used image-only PDFs after \(stderr)", terminator: "")
+        func unavailableReason(on page: String? = nil) async -> String? {
+            if page == nil, visionUnavailable { return String(stderr.dropLast()) }
+            let prefix = "yomi-ocr: "
+            guard status == 1, stderr.hasPrefix(prefix), stderr.hasSuffix("\n") else { return nil }
+            return await visionUnavailableReason(String(stderr.dropFirst(prefix.count).dropLast()), on: page)
+        }
+
+        func recognized() async throws -> Bool {
+            if let reason = await unavailableReason() {
+                print("\(Test.current?.name ?? "OCR test") used image-only PDFs after \(reason)")
                 return false
             }
             try #require(status == 0 && stderr.isEmpty, "Helper exit \(status), stderr: \(stderr)")
             return true
         }
     }
+}
+
+private let documentRequestFailure = #/RecognizeDocumentsRequest\.perform on (page-[1-9][0-9]*\.png): (.+)/#
+
+func isVisionComputeFailure(_ diagnostic: String) -> Bool {
+    let request = diagnostic.wholeMatch(of: documentRequestFailure)
+    let cause = request.map { String($0.2) } ?? diagnostic
+    let reader = request == nil ? "" : "TextRecognition.CRImageReaderError."
+    switch cause {
+    case reader + #"e5rtError("e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)"#,
+         reader + #"e5rtError("e5rt_stream_completion_handler call failed", 10)"#,
+         reader + #"e5rtError("e5rt_e5_compiler_compile call failed", 11)"#:
+        return true
+    default:
+        return cause.wholeMatch(of: #/(?:Vision\.VisionError\.)?unsupportedComputeDevice\(".+"\)/#) != nil
+            || cause.wholeMatch(of: #/Error Domain=TextRecognition\.CRImageReaderError Code=9 "[^\n]*"(?: UserInfo=\{[^\n]*\})?/#) != nil
+    }
+}
+
+private let renderedTextReaderError = Task<NSError?, Never> {
+    do {
+        _ = try await ScanProfile.TextRecognitionLanguage.automatic.documentRequest.perform(on: DocumentFixture.order.image)
+        return nil
+    } catch {
+        return error as NSError
+    }
+}
+
+func visionUnavailableReason(_ diagnostic: String, on page: String? = nil,
+                            control: () async -> NSError? = { await renderedTextReaderError.value }) async -> String? {
+    let request = diagnostic.wholeMatch(of: documentRequestFailure)
+    if let page, request?.1 != Substring(page) { return nil }
+    if isVisionComputeFailure(diagnostic) { return diagnostic }
+    guard request?.2 == "TextRecognition.CRImageReaderError.unknownError", let error = await control(),
+          error.domain == "TextRecognition.CRImageReaderError", error.code == 9 else { return nil }
+    return "\(diagnostic) (rendered order: \(error.domain) code=\(error.code))"
+}
+
+func reportVisionFailure(_ error: Error, on page: String? = nil) async throws -> Never {
+    guard let reason = await visionUnavailableReason(String(describing: error), on: page) else { throw error }
+    try reportVisionUnavailable(reason)
+}
+
+func reportVisionUnavailable(_ reason: String) throws -> Never {
+    print("\(Test.current?.name ?? "OCR test") unavailable: \(reason)")
+    try Test.cancel("\(reason)")
 }
 
 func expectJPEGRaster(_ original: ProcessedPage, quality: Double, in pdf: URL, pageNumber: Int = 1) throws {

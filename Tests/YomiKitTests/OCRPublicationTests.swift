@@ -74,7 +74,7 @@ struct OCRPublicationTests {
         let date = Date()
         let (batch, staged) = try OCRBatch.stage([page(width: 12), page(width: 24)], profile: profile, date: date)
         defer { try? fm.removeItem(at: staged) }
-        try batch.writePDFs(in: staged, textLayer: nil)
+        try batch.writePDFs(in: staged)
         let month = DocumentWriter.saveFolder(for: profile, date: date)
         try fm.moveItem(at: month, to: outside)
         try fm.createSymbolicLink(at: month, withDestinationURL: outside)
@@ -92,7 +92,7 @@ struct OCRPublicationTests {
         defer { try? fm.removeItem(at: staged) }
         let outputs = batch.documents.map(\.outputURL)
         #expect(outputs.map { fm.fileExists(atPath: $0.path) } == [false, false])
-        try batch.writePDFs(in: staged, textLayer: nil)
+        try batch.writePDFs(in: staged)
         let foreign = Data("another scan".utf8)
         try foreign.write(to: outputs[1], options: .atomic)
         let job = OCRJob(batch: batch, folder: staged, helper: URL(fileURLWithPath: "/usr/bin/true"))
@@ -207,7 +207,7 @@ struct OCRPublicationTests {
         let profile = ScanProfile(name: "Bills", folderPath: selected.path, namePattern: [.profileName])
         let (batch, staged) = try OCRBatch.stage([page(width: 12), page(width: 24)], profile: profile, date: Date())
         defer { try? fm.removeItem(at: staged) }
-        try batch.writePDFs(in: staged, textLayer: nil)
+        try batch.writePDFs(in: staged)
         if isAlias {
             try fm.removeItem(at: selected)
             try fm.createSymbolicLink(at: selected, withDestinationURL: replacement)
@@ -236,7 +236,7 @@ struct OCRPublicationTests {
         profile.searchablePDF = false
         let second = try DocumentWriter.save([page(width: 24)], profile: profile)
         #expect(second.map(\.lastPathComponent) == ["Bills (2).pdf"])
-        try batch.writePDFs(in: staged, textLayer: nil)
+        try batch.writePDFs(in: staged)
         try batch.publish(in: staged)
         let first = try #require(batch.documents.first?.outputURL)
         #expect(first.path == selected.appendingPathComponent("Bills.pdf").path)

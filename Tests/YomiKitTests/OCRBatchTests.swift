@@ -3,7 +3,6 @@ import CoreText
 import ImageIO
 import PDFKit
 import Testing
-import Vision
 @testable import YomiKit
 
 @Suite(.serialized)
@@ -58,17 +57,53 @@ struct OCRBatchTests {
         }
     }
 
-    @Test func recognitionErrorOnTheSecondPageFailsThePDF() throws {
+    @Test func documentComputeErrorsAllowImageOnlyResults() async {
+        let failure = #"yomi-ocr: e5rtError("e5rt_stream_completion_handler call failed", 10)"# + "\n"
+        let unavailable = #"yomi-ocr: e5rtError("e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)"# + "\n"
+        let compiler = #"e5rtError("e5rt_e5_compiler_compile call failed", 11)"#
+        let request = "RecognizeDocumentsRequest.perform on page-1.png: TextRecognition.CRImageReaderError.\(compiler)"
+        #expect(isVisionComputeFailure(compiler))
+        #expect(isVisionComputeFailure(request))
+        #expect(await OCRTestHelper.Output(status: 1, stderr: "yomi-ocr: \(request)\n").unavailableReason() != nil)
+        #expect(!isVisionComputeFailure(#"e5rtError("e5rt_e5_compiler_compile call failed", 10)"#))
+        #expect(await OCRTestHelper.Output(status: 1, stderr: unavailable).unavailableReason() != nil)
+        #expect(await OCRTestHelper.Output(status: 1, stderr: failure).unavailableReason() != nil)
+        #expect(await OCRTestHelper.Output(status: 0, stderr: failure).unavailableReason() == nil)
+        #expect(await OCRTestHelper.Output(status: 42, stderr: failure).unavailableReason() == nil)
+        #expect(await OCRTestHelper.Output(status: 1, stderr: "").unavailableReason() == nil)
+        #expect(await OCRTestHelper.Output(status: 1, stderr: "control: \(failure)").unavailableReason() == nil)
+        #expect(!isVisionComputeFailure(#"e5rtError("e5rt_stream_completion_handler call failed", 13)"#))
+    }
+
+    @Test func unknownDocumentErrorNeedsAReaderFailureOnRenderedText() async {
+        let prefix = "RecognizeDocumentsRequest.perform on page-1.png: "
+        let diagnostic = prefix + "TextRecognition.CRImageReaderError.unknownError"
+        let readerError = NSError(domain: "TextRecognition.CRImageReaderError", code: 9)
+        #expect(!isVisionComputeFailure("unknownError"))
+        #expect(await visionUnavailableReason(diagnostic) { readerError } != nil)
+        #expect(await visionUnavailableReason(diagnostic) { nil } == nil)
+        #expect(await visionUnavailableReason(diagnostic) { NSError(domain: readerError.domain, code: 8) } == nil)
+        #expect(await visionUnavailableReason(diagnostic) { NSError(domain: "unrelated", code: 9) } == nil)
+        #expect(await visionUnavailableReason(diagnostic, on: "page-2.png") { readerError } == nil)
+        for other in ["unknownError", prefix + "unknownError", prefix + "Other.unknownError",
+                      "writePDFs on page-1.png: TextRecognition.CRImageReaderError.unknownError",
+                      "\(diagnostic)\nother", prefix + "Vision.VisionError.invalidImage(\"damaged\")"] {
+            #expect(await visionUnavailableReason(other) { readerError } == nil)
+        }
+    }
+
+    @Test func textLayerErrorOnTheSecondPageFailsThePDF() throws {
         defer { try? FileManager.default.removeItem(at: folder) }
-        let profile = ScanProfile(name: "Bills", folderPath: folder.path)
-        let (batch, staged) = try OCRBatch.stage([page("First"), page("Second")], profile: profile, date: Date())
-        defer { try? FileManager.default.removeItem(at: staged) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let pages = [page("First"), page("Second")]
+        let output = folder.appendingPathComponent("Bills.pdf")
+        let context = try #require(CGContext(output as CFURL, mediaBox: nil, nil))
         var recognized = 0
         #expect(throws: CocoaError(.featureUnsupported)) {
-            try batch.writePDFs(in: staged) { _, _, _ in
+            try PDFWriter.write(pages: 2, in: context, jpegQuality: 0.75, textLayer: { _, _, _ in
                 recognized += 1
                 if recognized == 2 { throw CocoaError(.featureUnsupported) }
-            }
+            }) { (pages[$0].image, pages[$0].resolution) }
         }
         #expect(recognized == 2)
     }
@@ -81,8 +116,7 @@ struct OCRBatchTests {
         return Data(bytes: context.data!, count: image.height * context.bytesPerRow)
     }
 
-    @Test(.enabled("Vision text recognition is unavailable") { await BackCaptionTests.textRecognition.value })
-    func highCompressionRecognizesTheOriginalInvoice() async throws {
+    @Test func highCompressionRecognizesTheOriginalInvoice() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let context = try #require(CGContext(data: nil, width: 620, height: 120, bitsPerComponent: 8, bytesPerRow: 0,
                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
@@ -100,37 +134,37 @@ struct OCRBatchTests {
                                  source: .front, isColor: true)
         let profile = ScanProfile(name: "Invoice", folderPath: folder.path, compression: .high)
         let helper = try OCRTestHelper(in: folder)
-        let (original, output) = try await offTheTaskPool {
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.automaticallyDetectsLanguage = true
-            try VNImageRequestHandler(cgImage: page.image).perform([request])
-            let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        let output = try await offTheTaskPool {
             let (saved, pending) = try BatchSaver.start([page], profile: profile, photoLibrary: nil, helper: helper.script)
             let recognition = try #require(pending)
             try recognition.wait()
-            return (lines, saved.files[0])
+            try #require(saved.files.count == 1)
+            return saved.files[0]
         }
-        #expect(original.count == 3)
         let document = try #require(PDFDocument(url: output))
         try #require(document.pageCount == 1)
-        let text = document.string ?? ""
-        let expected = try helper.output().recognized() ? original : []
-        #expect(text.split(whereSeparator: \.isNewline).map(String.init) == expected)
-        let pdfPage = try #require(document.page(at: 0))
-        for (y, line) in zip([85, 49, 13], expected) {
-            let area = CGRect(x: 4, y: Double(y) * 72 / 150 - 2, width: 110, height: 10)
-            #expect(pdfPage.selection(for: area)?.string == line)
-        }
         try expectJPEGRaster(page, quality: profile.compression.jpegQuality, in: output)
+        let pdfPage = try #require(document.page(at: 0))
+        let text = (pdfPage.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if try await helper.output().recognized() {
+            let invoice = "Invoice B762194 Total 18.95 Ref 8217"
+            let lines = text.split(whereSeparator: \.isNewline).map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+            #expect(lines == Array(repeating: invoice, count: 3))
+            for y in [85, 49, 13] {
+                let area = CGRect(x: 4, y: Double(y) * 72 / 150 - 2, width: 110, height: 10)
+                let selection = pdfPage.selection(for: area)?.string
+                #expect(selection?.split(whereSeparator: \.isWhitespace).joined(separator: " ") == invoice)
+            }
+        } else {
+            #expect(text.isEmpty)
+        }
     }
 
     @Test func manifestKeepsOriginalPixelsAndMixedResolutionsAtHighCompression() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let pages = [page("Invoice number twelve"), page("Delivery date", dpi: 300), page("Final balance", dpi: 600)]
-        let profile = ScanProfile(name: "Invoices", folderPath: folder.path, saveTo: .photos, compression: .high,
-                                  pagesPerFile: 2, namePattern: [.profileName])
+        let profile = ScanProfile(name: "Invoices", folderPath: folder.path, saveTo: .photos, textRecognitionLanguage: .english,
+                                  compression: .high, pagesPerFile: 2, namePattern: [.profileName])
         let helper = try OCRTestHelper(in: folder)
         let (assigned, staged) = try OCRBatch.stage(pages, profile: profile, date: Date())
         let files = assigned.documents.map(\.outputURL)
@@ -139,6 +173,7 @@ struct OCRBatchTests {
         #expect(batch.documents.map(\.outputURL) == files)
         #expect(batch.documents.map { $0.pages.map(\.resolution) } == [[150, 300], [600]])
         #expect(batch.jpegQuality == 0.55)
+        #expect(batch.textRecognitionLanguage == .english)
         for (stagedPage, original) in zip(batch.documents.flatMap(\.pages), pages) {
             let source = try #require(CGImageSourceCreateWithURL(staged.appendingPathComponent(stagedPage.file) as CFURL, nil))
             let saved = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
@@ -153,7 +188,7 @@ struct OCRBatchTests {
         #expect(pdfs.map(\.pageCount) == [2, 1])
         let pdfPages = try pdfs.flatMap { pdf in try (0..<pdf.pageCount).map { try #require(pdf.page(at: $0)) } }
         #expect(pdfPages.map { $0.bounds(for: .mediaBox).width } == [460.8, 230.4, 115.2])
-        let expected = try helper.output().recognized() ? ["Invoice number twelve", "Delivery date", "Final balance"] : ["", "", ""]
+        let expected = try await helper.output().recognized() ? ["Invoice number twelve", "Delivery date", "Final balance"] : ["", "", ""]
         #expect(pdfPages.map { ($0.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines) } == expected)
         for (document, originals) in zip(files, [Array(pages.prefix(2)), Array(pages.suffix(1))]) {
             for (index, original) in originals.enumerated() {

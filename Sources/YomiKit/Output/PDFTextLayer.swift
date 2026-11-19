@@ -3,14 +3,28 @@ import CoreText
 import Foundation
 import Vision
 
-package enum PDFTextLayer {
-    package static func draw(_ image: CGImage, in box: CGRect, context: CGContext) throws {
+enum PDFTextLayer {
+    static func draw(_ image: CGImage, in box: CGRect, context: CGContext) throws {
         drawInvisibleText(try recognizeText(in: image), in: box, context: context)
     }
 
-    private struct RecognizedLine {
+    static func draw(_ page: RecognizedPage, in box: CGRect, context: CGContext) {
+        for document in page.documents {
+            let lines = document.text.lines.map { line in
+                let start = line.topLeft.cgPoint
+                let end = line.topRight.cgPoint
+                let runsDown = (start.y - end.y) * box.height > abs(end.x - start.x) * box.width
+                return RecognizedLine(text: line.transcript, box: line.boundingBox.cgRect,
+                                      direction: runsDown ? .topToBottom : line.textDirection)
+            }
+            drawInvisibleText(lines, in: box, context: context)
+        }
+    }
+
+    struct RecognizedLine {
         let text: String
         let box: CGRect
+        var direction: RecognizedTextObservation.Direction? = .leftToRight
     }
 
     private struct RecognitionFailure: Error, CustomStringConvertible {
@@ -36,7 +50,7 @@ package enum PDFTextLayer {
         }
     }
 
-    private static func drawInvisibleText(_ lines: [RecognizedLine], in page: CGRect, context: CGContext) {
+    static func drawInvisibleText(_ lines: [RecognizedLine], in page: CGRect, context: CGContext) {
         context.saveGState()
         context.setTextDrawingMode(.invisible)
         for line in lines where !line.text.isEmpty {
@@ -44,7 +58,10 @@ package enum PDFTextLayer {
                               y: page.minY + line.box.minY * page.height,
                               width: line.box.width * page.width,
                               height: line.box.height * page.height)
-            let font = CTFontCreateWithName("Helvetica" as CFString, max(rect.height * 0.85, 1), nil)
+            let vertical = line.direction.map { $0 == .topToBottom } ?? (rect.height > 2 * rect.width)
+            let length = vertical ? rect.height : rect.width
+            let thickness = vertical ? rect.width : rect.height
+            let font = CTFontCreateWithName("Helvetica" as CFString, max(thickness * 0.85, 1), nil)
             let attributed = NSAttributedString(string: line.text, attributes: [
                 NSAttributedString.Key(kCTFontAttributeName as String): font,
             ])
@@ -52,8 +69,13 @@ package enum PDFTextLayer {
             let naturalWidth = CTLineGetTypographicBounds(ctLine, nil, nil, nil)
             guard naturalWidth > 0 else { continue }
             context.saveGState()
-            context.translateBy(x: rect.minX, y: rect.minY + rect.height * 0.15)
-            context.scaleBy(x: rect.width / naturalWidth, y: 1)
+            if vertical {
+                context.translateBy(x: rect.minX + thickness * 0.15, y: rect.maxY)
+                context.rotate(by: -.pi / 2)
+            } else {
+                context.translateBy(x: rect.minX, y: rect.minY + thickness * 0.15)
+            }
+            context.scaleBy(x: length / naturalWidth, y: 1)
             context.textPosition = .zero
             CTLineDraw(ctLine, context)
             context.restoreGState()

@@ -17,13 +17,13 @@ public enum PDFWriter {
     static func write(_ pages: [ProcessedPage], in context: CGContext, jpegQuality: Double,
                       searchable: Bool, progress: ((Int) -> Void)?) throws {
         try write(pages: pages.count, in: context, jpegQuality: jpegQuality, progress: progress,
-                  textLayer: searchable ? { try? PDFTextLayer.draw($0, in: $1, context: $2) } : nil) { index in
+                  textLayer: searchable ? { try? PDFTextLayer.draw(pages[$0].image, in: $1, context: $2) } : nil) { index in
             (pages[index].image, pages[index].resolution)
         }
     }
 
     static func write(pages count: Int, in context: CGContext, jpegQuality: Double, progress: ((Int) -> Void)? = nil,
-                      textLayer: ((CGImage, CGRect, CGContext) throws -> Void)?,
+                      textLayer: ((Int, CGRect, CGContext) throws -> Void)?,
                       pageAt: (Int) throws -> (image: CGImage, resolution: Int)) throws {
         defer { context.closePDF() }
         for index in 0..<count {
@@ -36,7 +36,7 @@ public enum PDFWriter {
                 context.beginPage(mediaBox: &box)
                 defer { context.endPage() }
                 context.draw(image, in: box)
-                try textLayer?(page.image, box, context)
+                try textLayer?(index, box, context)
             }
         }
     }

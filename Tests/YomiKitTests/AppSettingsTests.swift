@@ -24,10 +24,19 @@ struct AppSettingsTests {
     @Test func decodesVersion1Settings() throws {
         let settings = try AppSettings(json: Self.fixture("settings-v1"))
         #expect(settings.profiles == Self.v1Profiles)
+        #expect(settings.profiles.allSatisfy { $0.textRecognitionLanguage == .automatic })
         #expect(settings.buttonProfileID == UUID(uuidString: "0A9CA2A9-EEB9-4098-A191-1A0CA292BF17"))
         #expect(settings.addedPhotoProfiles == false)
         #expect(settings.switchedPhotoProfilesToHEIC == false)
         #expect(settings.appearance == .system)
+    }
+
+    @Test func textRecognitionLanguageRoundTripsForEachProfile() throws {
+        let profiles = ScanProfile.TextRecognitionLanguage.allCases.map {
+            ScanProfile(name: $0.title, textRecognitionLanguage: $0)
+        }
+        let saved = AppSettings(profiles: profiles)
+        #expect(try AppSettings(json: saved.json()).profiles == profiles)
     }
 
     @Test func reencodedSettingsRoundTrip() throws {

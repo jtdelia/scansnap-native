@@ -354,6 +354,10 @@ struct ProfileEditor: View {
                 }
                 if profile.fileFormat == .pdf {
                     Toggle("Make PDF searchable (recognize text)", isOn: $profile.searchablePDF)
+                    Picker("Text recognition language", selection: $profile.textRecognitionLanguage) {
+                        ForEach(ScanProfile.TextRecognitionLanguage.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .disabled(!profile.searchablePDF)
                 }
                 if !profile.fileFormat.savesPagesSeparately {
                     Toggle("Split into several files", isOn: Binding(
