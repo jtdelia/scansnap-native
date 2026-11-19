@@ -19,6 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard model?.delayQuitUntilSaved({ sender.reply(toApplicationShouldTerminate: true) }) == true else { return .terminateNow }
+        return .terminateLater
+    }
+
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         let status = NSMenuItem(title: model.connection.title, action: nil, keyEquivalent: "")

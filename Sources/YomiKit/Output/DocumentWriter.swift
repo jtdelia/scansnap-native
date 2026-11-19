@@ -34,23 +34,50 @@ public enum DocumentWriter {
     static func saveFiles(_ pages: [ProcessedPage], profile: ScanProfile, date: Date,
                           progress: ((String) -> Void)?) throws -> [SavedFile] {
         guard !pages.isEmpty else { return [] }
+        if profile.fileFormat == .pdf {
+            return try savePDFs(pages, profile: profile, date: date, progress: progress)
+        }
         let folder = try openFolder(for: profile, date: date)
-        let starts = firstPages(pages: pages.count, profile: profile)
-        let names = baseNames(profile, firstPages: starts, date: date)
-
-        return try starts.indices.map { file in
-            let end = file + 1 < starts.count ? starts[file + 1] - 1 : pages.count
-            let offset = starts[file] - 1
-            let filePages = Array(pages[offset..<end])
+        return try fileGroups(pages: pages.count, profile: profile, date: date).map { group in
+            let filePages = Array(pages[group.range])
             func save(_ pagesToWrite: [ProcessedPage], as name: FileName) throws -> (name: FileName, url: URL) {
                 try folder.write(name, format: profile.fileFormat) { handle, url in
-                    try write(pagesToWrite, to: handle, url: url, profile: profile, offset: offset,
+                    try write(pagesToWrite, to: handle, url: url, profile: profile, offset: group.range.lowerBound,
                               total: pages.count, progress: progress)
                 }
             }
-            let main = try save(profile.enhancesPhotos ? filePages.map(AutoEnhancer.enhance) : filePages, as: names[file])
+            let main = try save(profile.enhancesPhotos ? filePages.map(AutoEnhancer.enhance) : filePages, as: group.name)
             let original = profile.enhancesPhotos ? try save(filePages, as: main.name.original).url : nil
             return SavedFile(url: main.url, original: original, name: main.name)
+        }
+    }
+
+    static func savePDFs(_ pages: [ProcessedPage], profile: ScanProfile, date: Date, progress: ((String) -> Void)?,
+                         recovery: OCRRecoveryError? = nil) throws -> [SavedFile] {
+        var prepared: (file: FileHandle, firstPage: Int)?
+        do {
+            let directory = try recovery?.directory ?? PDFDirectory(openFolder(for: profile, date: date))
+            let files = try fileGroups(pages: pages.count, profile: profile, date: date).map { group in
+                let claim = try reservePDF(in: directory, group.name)
+                let published = try claim.publish(pages: group.range.count, retrying: group.name) { file in
+                    prepared = (try FileHandle(forReadingFrom: file.pdfURL), group.range.lowerBound + 1)
+                    try write(Array(pages[group.range]), to: file, url: claim.output, profile: profile,
+                              offset: group.range.lowerBound, total: pages.count, progress: progress)
+                }
+                prepared = nil
+                return SavedFile(url: published.output, original: nil, name: published.name)
+            }
+            if let recovery { try? FileManager.default.removeItem(at: recovery.folder) }
+            return files
+        } catch {
+            let staging = try recovery?.folder ?? OCRBatch.temporaryFolder()
+            defer {
+                if let prepared {
+                    prepared.file.recoverPDF(to: staging.appendingPathComponent("pages-\(prepared.firstPage).pdf"))
+                }
+            }
+            _ = try OCRBatch.stageOriginals(pages, in: staging, alreadySaved: recovery?.saved ?? 0)
+            throw OCRRecoveryError(folder: staging, saved: pages.count, total: pages.count, cause: error)
         }
     }
 
@@ -83,6 +110,15 @@ public enum DocumentWriter {
                 }
                 guard CGImageDestinationFinalize(destination) else { throw ImageWriterError.cannotWrite(url) }
             }
+        }
+    }
+
+    static func fileGroups(pages: Int, profile: ScanProfile, date: Date) -> [(range: Range<Int>, name: FileName)] {
+        let starts = firstPages(pages: pages, profile: profile)
+        let names = baseNames(profile, firstPages: starts, date: date)
+        return starts.indices.map { index in
+            let end = index + 1 < starts.count ? starts[index + 1] - 1 : pages
+            return ((starts[index] - 1)..<end, names[index])
         }
     }
 
@@ -184,6 +220,16 @@ public enum DocumentWriter {
             bytes += byteCount(String(character))
             return bytes <= limit
         }.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func reservePDF(in directory: PDFDirectory, _ name: FileName) throws -> PDFReservation {
+        var candidate = name
+        var counter = 2
+        while true {
+            if let claim = try PDFReservation.claim(candidate, in: directory) { return claim }
+            candidate.suffix = "\(name.suffix) (\(counter))"
+            counter += 1
+        }
     }
 }
 

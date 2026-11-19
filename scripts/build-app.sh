@@ -9,10 +9,12 @@ INSTALL_DIR="$HOME/Applications"
 
 cd "$ROOT"
 swift build -c release --product YomiApp
+swift build -c release --product yomi-ocr
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/YomiApp "$APP/Contents/MacOS/Yomi"
+cp .build/release/yomi-ocr "$APP/Contents/MacOS/"
 
 if [[ ! -f "$BUILD/AppIcon.icns" ]]; then
   ICONSET="$BUILD/AppIcon.iconset"
@@ -58,7 +60,23 @@ while pgrep -x Yomi >/dev/null && [[ -f "$LOG" ]] && grep "connection:" "$LOG" |
   echo "Waiting for the current scan to finish before replacing the app…"
   sleep 3
 done
-pkill -x Yomi 2>/dev/null || true
+swift - "$APP" <<'SWIFT'
+import AppKit
+
+let bundle = Bundle(url: URL(fileURLWithPath: CommandLine.arguments[1]))
+guard let identifier = bundle?.bundleIdentifier else { exit(1) }
+let apps = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+for app in apps where !app.isTerminated {
+    print("Waiting for Yomi to finish saving and quit…")
+    guard app.terminate() || app.isTerminated else {
+        FileHandle.standardError.write(Data("Could not quit Yomi. Installation stopped.\n".utf8))
+        exit(1)
+    }
+}
+while apps.contains(where: { !$0.isTerminated }) {
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+}
+SWIFT
 rm -rf "$INSTALL_DIR/Yomi.app"
 cp -R "$APP" "$INSTALL_DIR/"
 echo "Installed $INSTALL_DIR/Yomi.app"

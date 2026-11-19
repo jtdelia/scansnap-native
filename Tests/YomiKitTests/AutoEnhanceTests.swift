@@ -80,7 +80,7 @@ struct AutoEnhanceTests {
         let folder = try Self.temporaryFolder()
         let profile = Self.profile(autoEnhance: true, folder: folder, namePattern: [.profileName], fileFormat: format)
         try await Self.save([Self.dullPhoto(), Self.dullPhoto()], profile)
-        #expect(try Self.folderContents(folder) == ["Prints.\(format.fileExtension)"])
+        #expect(try filesAfterReleasingReservations(in: folder, format: format) == ["Prints.\(format.fileExtension)"])
     }
 
     @Test(arguments: [ScanProfile.FileFormat.jpeg, .tiff])

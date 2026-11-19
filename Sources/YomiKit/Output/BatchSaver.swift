@@ -56,6 +56,40 @@ public struct SavedBatch: Sendable {
 public enum BatchSaver {
     public static func save(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
                             date: Date = Date(), progress: ((String) -> Void)? = nil) throws -> SavedBatch {
+        let (saved, recognition) = try start(pages, profile: profile, photoLibrary: photoLibrary, date: date,
+                                             progress: progress)
+        try recognition?.wait()
+        return saved
+    }
+
+    static func start(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
+                      date: Date = Date(), helper: URL = OCRBatch.helperURL,
+                      progress: ((String) -> Void)? = nil) throws -> (SavedBatch, OCRJob?) {
+        guard !pages.isEmpty, profile.fileFormat == .pdf else {
+            return (try saveImages(pages, profile: profile, photoLibrary: photoLibrary, date: date, progress: progress), nil)
+        }
+        let place = DocumentWriter.folderName(for: profile, date: date)
+        let destination = DocumentWriter.saveFolder(for: profile, date: date)
+        var recovery: OCRRecoveryError?
+        if profile.searchablePDF {
+            do {
+                progress?("Preparing pages for text recognition…")
+                let (batch, folder) = try OCRBatch.stage(pages, profile: profile, date: date)
+                let saved = SavedBatch(files: batch.documents.map(\.outputURL), warning: nil, place: place, folder: destination)
+                return (saved, OCRJob(batch: batch, folder: folder, helper: helper))
+            } catch {
+                ScanLog.write("  Could not stage pages for yomi-ocr: \(error). Saving image-only PDFs.")
+                recovery = error as? OCRRecoveryError
+            }
+        }
+        var imageOnly = profile
+        imageOnly.searchablePDF = false
+        let files = try DocumentWriter.savePDFs(pages, profile: imageOnly, date: date, progress: progress, recovery: recovery)
+        return (SavedBatch(files: files.map(\.url), warning: nil, place: place, folder: destination), nil)
+    }
+
+    private static func saveImages(_ pages: [ProcessedPage], profile: ScanProfile, photoLibrary: (any PhotoLibrary)?,
+                                   date: Date, progress: ((String) -> Void)?) throws -> SavedBatch {
         let folder = DocumentWriter.folderName(for: profile, date: date)
         let folderURL = DocumentWriter.saveFolder(for: profile, date: date)
         guard profile.destination.savesToPhotos else {

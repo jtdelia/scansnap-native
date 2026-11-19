@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "YomiKit", targets: ["YomiKit"]),
         .executable(name: "yomi", targets: ["yomi"]),
+        .executable(name: "yomi-ocr", targets: ["yomi-ocr"]),
         .executable(name: "YomiApp", targets: ["YomiApp"]),
     ],
     targets: [
@@ -16,6 +17,7 @@ let package = Package(
             linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("IOUSBHost")]
         ),
         .executableTarget(name: "yomi", dependencies: ["YomiKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .executableTarget(name: "yomi-ocr", dependencies: ["YomiKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(name: "YomiApp", dependencies: ["YomiKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "YomiAppTests", dependencies: ["YomiApp"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(

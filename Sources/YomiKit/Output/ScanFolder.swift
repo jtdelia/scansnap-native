@@ -3,11 +3,17 @@ import Foundation
 import System
 
 struct ScanFolder {
-    private let url: URL
-    private let directory: FileHandle
+    let url: URL
+    let directory: FileHandle
+    private let root: URL
+    private let subfolders: [String]
 
-    init(root: URL, subfolders: [String]) throws {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    init(root: URL, subfolders: [String], createIfMissing: Bool = true) throws {
+        self.root = root
+        self.subfolders = subfolders
+        if createIfMissing {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        }
         let flags = O_SEARCH | O_CLOEXEC
         let rootFD = open(root.path, flags)
         guard rootFD >= 0 else { throw FolderError(root, errno) }
@@ -16,7 +22,7 @@ struct ScanFolder {
         for level in subfolders {
             folder.appendPathComponent(level, isDirectory: true)
             var fd = openat(parent.fileDescriptor, level, flags | O_NOFOLLOW)
-            if fd < 0, errno == ENOENT {
+            if fd < 0, errno == ENOENT, createIfMissing {
                 guard mkdirat(parent.fileDescriptor, level, 0o777) == 0 || errno == EEXIST else {
                     throw FolderError(folder, errno)
                 }
@@ -27,6 +33,10 @@ struct ScanFolder {
         }
         url = folder
         directory = parent
+    }
+
+    func reopen() throws -> FileHandle {
+        try ScanFolder(root: root, subfolders: subfolders, createIfMissing: false).directory
     }
 
     func write(_ name: DocumentWriter.FileName, format: ScanProfile.FileFormat,
@@ -61,7 +71,7 @@ struct ScanFolder {
         unlinkat(directory.fileDescriptor, file.lastPathComponent, 0)
     }
 
-    private struct FolderError: LocalizedError, CustomStringConvertible {
+    struct FolderError: LocalizedError, CustomStringConvertible {
         let description: String
         var errorDescription: String? { description }
 

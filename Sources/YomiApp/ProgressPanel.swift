@@ -12,6 +12,7 @@ final class ProgressPanelController {
 
     func show(model: AppModel) {
         hideWork?.cancel()
+        hideWork = nil
         let panel = panel ?? makePanel(model: model)
         self.panel = panel
         position(panel)
@@ -23,9 +24,11 @@ final class ProgressPanelController {
     func hide(after delay: TimeInterval) {
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let panel = self?.panel else { return }
+            guard let self, let panel else { return }
             NSAnimationContext.runAnimationGroup({ $0.duration = 0.35; panel.animator().alphaValue = 0 }) {
-                Task { @MainActor in panel.orderOut(nil) }
+                Task { @MainActor in
+                    if self.hideWork != nil { panel.orderOut(nil) }
+                }
             }
         }
         hideWork = work
@@ -62,14 +65,47 @@ struct ScanProgressView: View {
 
     var body: some View {
         GlassEffectContainer {
-            HStack(alignment: .top, spacing: 18) {
-                thumbnail
-                VStack(alignment: .leading, spacing: 10) {
-                    header
-                    status
-                    counters
-                    footer
-                        .frame(maxHeight: .infinity, alignment: .bottom)
+            Group {
+                if case let .failed(failure) = model.jobState {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label(failure.profile, systemImage: "exclamationmark.triangle.fill")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        ScrollView {
+                            Text(failure.message).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if let sheets = failure.sheets, let pages = failure.pages {
+                            HStack(spacing: 16) {
+                                counter("Sheets", sheets)
+                                counter("Pages", pages)
+                                if let skipped = failure.blankPagesSkipped, skipped > 0 {
+                                    counter("Blank skipped", skipped)
+                                }
+                            }
+                        }
+                        HStack {
+                            if let folder = failure.folder {
+                                Label(folder.lastPathComponent, systemImage: "folder")
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Button("Open Folder") { NSWorkspace.shared.open(folder) }
+                            }
+                            Spacer()
+                            Button("Dismiss") { model.dismissFailure() }
+                        }
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 18) {
+                        thumbnail
+                        VStack(alignment: .leading, spacing: 10) {
+                            header
+                            status
+                            counters
+                            footer
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                        }
+                    }
                 }
             }
             .padding(20)
@@ -95,25 +131,18 @@ struct ScanProgressView: View {
 
     @ViewBuilder private var status: some View {
         switch model.jobState {
-        case .running:
+        case .running, .recognizing:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(model.progress?.phase ?? "Preparing…").font(.callout)
+                Text(model.jobState == .recognizing ? "Making PDF searchable…" : model.progress?.phase ?? "Preparing…")
+                    .font(.callout)
             }
         case let .finished(message):
             Label(message, systemImage: "checkmark.circle.fill")
                 .font(.callout)
                 .foregroundStyle(.green)
                 .lineLimit(3)
-        case let .failed(message):
-            ScrollView {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .layoutPriority(1)
-        case .idle:
+        case .failed, .idle:
             EmptyView()
         }
     }

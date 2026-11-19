@@ -315,7 +315,7 @@ struct FileNameTests {
         #expect(try Self.save(1, profile, into: root) == ["Invoice 0041.pdf"])
         #expect(try Self.save(1, profile, into: root) == ["Invoice 0041 (2).pdf"])
         let month = target.appendingPathComponent("2026/11")
-        #expect(try fm.contentsOfDirectory(atPath: month.path).sorted() == ["Invoice 0041 (2).pdf", "Invoice 0041.pdf"])
+        #expect(try filesAfterReleasingReservations(in: month) == ["Invoice 0041 (2).pdf", "Invoice 0041.pdf"])
     }
 
     @Test func anExistingLinkCountsAsAFileNameClash() throws {

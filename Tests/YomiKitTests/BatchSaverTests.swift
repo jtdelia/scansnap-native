@@ -186,7 +186,8 @@ struct BatchSaverTests {
         let library = FakePhotoLibrary()
         let saved = try Self.save(profile, library: library)
         #expect(library.added.isEmpty)
-        #expect(Self.folderContents(profile) == ["2026-11-14 21.42.05_001.\(format.fileExtension)"])
+        let files = try filesAfterReleasingReservations(in: profile.folderURL, format: format)
+        #expect(files == ["2026-11-14 21.42.05_001.\(format.fileExtension)"])
         #expect(saved.warning == nil)
         #expect(saved.place == profile.folderURL.lastPathComponent)
     }

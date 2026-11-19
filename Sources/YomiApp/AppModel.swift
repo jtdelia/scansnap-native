@@ -6,13 +6,6 @@ import ServiceManagement
 @MainActor
 @Observable
 final class AppModel {
-    enum JobState: Equatable {
-        case idle
-        case running
-        case finished(String)
-        case failed(String)
-    }
-
     /// Everything saved in `Settings.json`, kept whole so every field, including the upgrade markers, is saved.
     private var settings = AppSettings() { didSet { save() } }
 
@@ -35,7 +28,12 @@ final class AppModel {
     }
     var connection: ScannerConnection = .disconnected
     var progress: ScanProgress?
-    var jobState: JobState = .idle
+    private var status: BatchStatus
+
+    init(status: BatchStatus = BatchStatus()) {
+        self.status = status
+    }
+    var jobState: BatchStatus.State { status.state }
     var activeProfile: ScanProfile?
     /// The folder the running batch saves in, or the last batch went to, as the progress panel names it.
     var batchFolder: String?
@@ -43,7 +41,9 @@ final class AppModel {
 
     let service = ScannerService()
     /// Where each scan profile's last batch was saved, while the app runs.
-    private var lastFolders: [UUID: URL] = [:]
+    private var lastFolders: [UUID: (batch: Int, folder: URL)] = [:]
+    private let pendingBatches = DispatchGroup()
+    private var quitting = false
     private var loaded = false
 
     static let supportFolder = FileManager.default.homeDirectoryForCurrentUser
@@ -77,6 +77,7 @@ final class AppModel {
     }
 
     func scan(with profile: ScanProfile) {
+        guard !quitting else { return }
         guard jobState != .running, connection.isReady else {
             if !connection.isReady { NSSound.beep() }
             return
@@ -84,12 +85,31 @@ final class AppModel {
         activeProfile = profile
         batchFolder = profile.destination.savesToFolder ? DocumentWriter.folderName(for: profile) : nil
         progress = ScanProgress(phase: "Preparing…", sheets: 0, pages: 0, blankPagesSkipped: 0, thumbnail: nil)
-        jobState = .running
+        let batch = status.beginScan()
         ProgressPanelController.shared.show(model: self)
 
-        service.scan(profile: profile) { result in
-            Task { @MainActor in self.finish(profile: profile, result: result) }
+        pendingBatches.enter()
+        service.scan(profile: profile, onPagesReady: { pages, recognizing in
+            DispatchQueue.main.async {
+                let used = DocumentWriter.numbersUsed(pages: pages, profile: profile)
+                if used > 0, let index = self.profiles.firstIndex(where: { $0.id == profile.id }) {
+                    self.profiles[index].nextNumber += used
+                }
+                if recognizing { self.status.recognize(batch: batch) }
+            }
+        }) { result in
+            DispatchQueue.main.async {
+                self.finish(batch: batch, profile: profile, result: result)
+                self.pendingBatches.leave()
+            }
         }
+    }
+
+    func delayQuitUntilSaved(_ completion: @escaping @MainActor @Sendable () -> Void) -> Bool {
+        guard pendingBatches.wait(timeout: .now()) == .timedOut else { return false }
+        quitting = true
+        pendingBatches.notify(queue: .main) { completion() }
+        return true
     }
 
     func cancelScan() {
@@ -109,38 +129,36 @@ final class AppModel {
     func openFolder(of profile: ScanProfile) {
         let fm = FileManager.default
         try? fm.createDirectory(at: profile.folderURL, withIntermediateDirectories: true)
-        let folder = [lastFolders[profile.id], DocumentWriter.saveFolder(for: profile)].compactMap(\.self)
+        let folder = [lastFolders[profile.id]?.folder, DocumentWriter.saveFolder(for: profile)].compactMap(\.self)
             .first { fm.fileExists(atPath: $0.path) }
         NSWorkspace.shared.open(folder ?? profile.folderURL)
     }
 
-    private func finish(profile: ScanProfile, result: Result<ScanOutcome, Error>) {
-        switch result {
-        case let .success(outcome):
-            let numbersUsed = DocumentWriter.numbersUsed(pages: outcome.pages, profile: profile)
-            if let index = profiles.firstIndex(where: { $0.id == profile.id }), numbersUsed > 0 {
-                profiles[index].nextNumber += numbersUsed
-            }
-            if let folder = outcome.folder {
-                batchFolder = Self.name(of: folder, in: profile)
-                lastFolders[profile.id] = folder
-            }
-            let summary = outcome.summary(defaultPlace: profile.folderURL.lastPathComponent)
-            if summary.isProblem {
-                jobState = .failed(summary.message)
-                ProgressPanelController.shared.hide(after: 4)
-            } else {
-                jobState = .finished(summary.message)
-                ProgressPanelController.shared.hide(after: outcome.notice == nil ? 1.6 : 4)
+    private func finish(batch: Int, profile: ScanProfile, result: Result<ScanOutcome, Error>) {
+        status.finish(batch: batch, profile: profile, result: result)
+        if case let .success(outcome) = result {
+            if let folder = outcome.folder, batch >= (lastFolders[profile.id]?.batch ?? 0) {
+                lastFolders[profile.id] = (batch, folder)
+                if batch == status.latest { batchFolder = Self.name(of: folder, in: profile) }
             }
             switch profile.afterScan {
             case .nothing: break
             case .openFile: outcome.files.forEach { NSWorkspace.shared.open($0) }
             case .revealInFinder: NSWorkspace.shared.activateFileViewerSelecting(outcome.files)
             }
-        case let .failure(error):
-            jobState = .failed("\(error)")
-            ProgressPanelController.shared.hide(after: 3.5)
+            if case .finished = jobState, batch == status.latest {
+                ProgressPanelController.shared.hide(after: outcome.notice == nil ? 1.6 : 4)
+            }
+        }
+        if case .failed = jobState { ProgressPanelController.shared.show(model: self) }
+    }
+
+    func dismissFailure() {
+        status.dismissFailure()
+        switch jobState {
+        case .idle: ProgressPanelController.shared.hide(after: 0)
+        case .finished: ProgressPanelController.shared.hide(after: 1.6)
+        default: break
         }
     }
 

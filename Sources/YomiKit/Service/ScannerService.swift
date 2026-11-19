@@ -65,6 +65,26 @@ public struct ScanOutcome: Sendable {
         let message = pages == 0 ? "No pages saved\(skipped)." : "\(saved) to \(place ?? defaultPlace)\(skipped)."
         return ([message, notice].compactMap(\.self).joined(separator: " "), false)
     }
+
+    func report(after recognition: OCRJob?, on queue: DispatchQueue, onPagesReady: (@Sendable (Int, Bool) -> Void)?,
+                completion: @escaping @Sendable (Result<ScanOutcome, Error>) -> Void) {
+        onPagesReady?(pages, recognition != nil)
+        let finish: @Sendable (Result<Void, Error>) -> Void = { result in
+            switch result {
+            case .success:
+                ScanLog.write("scan finished: \(sheets) sheet(s), \(pages) page(s), \(blankPagesSkipped) blank skipped → \(files.map(\.lastPathComponent).joined(separator: ", "))")
+                completion(.success(self))
+            case let .failure(error):
+                ScanLog.write("scan failed: \(error)")
+                completion(.failure(error))
+            }
+        }
+        if let recognition {
+            recognition.notify(on: queue, finish)
+        } else {
+            finish(.success(()))
+        }
+    }
 }
 
 /// Appends timestamped lines to ~/Library/Logs/Yomi.log.
@@ -216,8 +236,12 @@ public final class ScannerService: @unchecked Sendable {
 
     // MARK: Scanning
 
-    /// Scans one batch with `profile`. Completion runs on the service queue.
     public func scan(profile: ScanProfile, completion: @escaping @Sendable (Result<ScanOutcome, Error>) -> Void) {
+        scan(profile: profile, onPagesReady: nil, completion: completion)
+    }
+
+    public func scan(profile: ScanProfile, onPagesReady: (@Sendable (Int, Bool) -> Void)?,
+                     completion: @escaping @Sendable (Result<ScanOutcome, Error>) -> Void) {
         queue.async { [self] in
             guard let device, !scanning else {
                 completion(.failure(ScanError.noPaper))
@@ -234,14 +258,13 @@ public final class ScannerService: @unchecked Sendable {
                 }
             }
             ScanLog.write("scan started: \(profile.name) — \(profile.summary)")
-            let result = Result { try runScan(profile: profile, device: device) }
-            switch result {
-            case let .success(outcome):
-                ScanLog.write("scan finished: \(outcome.sheets) sheet(s), \(outcome.pages) page(s), \(outcome.blankPagesSkipped) blank skipped → \(outcome.files.map(\.lastPathComponent).joined(separator: ", "))")
-            case let .failure(error):
+            do {
+                let (outcome, recognition) = try runScan(profile: profile, device: device)
+                outcome.report(after: recognition, on: queue, onPagesReady: onPagesReady, completion: completion)
+            } catch {
                 ScanLog.write("scan failed: \(error)")
+                completion(.failure(error))
             }
-            completion(result)
         }
     }
 
@@ -267,7 +290,7 @@ public final class ScannerService: @unchecked Sendable {
         var processingError: Error?
     }
 
-    private func runScan(profile: ScanProfile, device: ScannerDevice) throws -> ScanOutcome {
+    private func runScan(profile: ScanProfile, device: ScannerDevice) throws -> (ScanOutcome, OCRJob?) {
         let state = JobState()
         let onProgress = self.onProgress
         func update(_ change: (inout ScanProgress) -> Void) {
@@ -344,9 +367,9 @@ public final class ScannerService: @unchecked Sendable {
         let skipped = state.lock.withLock { state.progress.blankPagesSkipped }
         guard !pages.isEmpty else {
             if let stopReason { throw stopReason }
-            return ScanOutcome(files: [], sheets: sheets, pages: 0, blankPagesSkipped: skipped)
+            return (ScanOutcome(files: [], sheets: sheets, pages: 0, blankPagesSkipped: skipped), nil)
         }
-        let saved = try BatchSaver.save(pages, profile: profile, photoLibrary: photoLibrary) { phase in
+        let (saved, recognition) = try BatchSaver.start(pages, profile: profile, photoLibrary: photoLibrary) { phase in
             update { $0.phase = phase }
         }
         if let warning = saved.warning { ScanLog.write("  \(warning)") }
@@ -362,6 +385,6 @@ public final class ScannerService: @unchecked Sendable {
         outcome.warning = warnings.isEmpty ? nil : warnings.joined(separator: " ")
         let notices = [colorCorrection.notice, saved.notice].compactMap { $0 }
         outcome.notice = notices.isEmpty ? nil : notices.joined(separator: " ")
-        return outcome
+        return (outcome, recognition)
     }
 }
